@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "SafarLink",
+    "slug": "safarlink",
+    "scheme": "safarlink",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./public/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./public/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#00A3E0"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.safarlink.app"
+    },
+    "android": {
+      "package": "com.safarlink.app",
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./public/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-splash-screen",
+      "expo-secure-store"
+    ],
+    "runtimeVersion": "1.0.0"
+  }
+}
