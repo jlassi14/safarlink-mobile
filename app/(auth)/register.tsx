@@ -12,7 +12,7 @@ import {
   KeyboardAvoidingView,
   Pressable,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 import { COUNTRIES_LIST, CountryPhoneSchema } from "@/lib/constants";
@@ -29,6 +29,7 @@ import {
   Camera,
   X,
   ImageIcon,
+  Gift,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import Input from "@/components/Input";
@@ -62,6 +63,14 @@ export default function RegisterScreen() {
   const [residence, setResidence] = useState(COUNTRIES_LIST[0]);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const { ref } = useLocalSearchParams<{ ref?: string }>();
+  const [referralCode, setReferralCode] = useState(ref ? String(ref).trim().toUpperCase() : "");
+
+  React.useEffect(() => {
+    if (ref && !referralCode) {
+      setReferralCode(String(ref).trim().toUpperCase());
+    }
+  }, [ref]);
 
   // Per-Field Validation Errors State
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -206,6 +215,7 @@ export default function RegisterScreen() {
         dateOfBirth: birthdate ? birthdate.toISOString().split("T")[0] : undefined,
         avatar: avatarUri || undefined,
         password,
+        referralCode: referralCode.trim() ? referralCode.trim().toUpperCase() : undefined,
       });
 
       if (response.data?.success && response.data.data) {
@@ -428,6 +438,24 @@ export default function RegisterScreen() {
               )}
             </TouchableOpacity>
           }
+        />
+
+        <Input
+          icon={Gift}
+          placeholder={
+            language === "ar"
+              ? "رمز الإحالة / كود الدعوة (اختياري)"
+              : language === "fr"
+              ? "Code de parrainage (Optionnel)"
+              : "Referral code (Optional)"
+          }
+          value={referralCode}
+          autoCapitalize="characters"
+          error={errors.referralCode}
+          onChangeText={(v) => {
+            setReferralCode(v.toUpperCase().trim());
+            clearFieldError("referralCode");
+          }}
         />
 
         <Button

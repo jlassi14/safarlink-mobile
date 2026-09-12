@@ -39,6 +39,7 @@ import {
   Send,
   Package,
   Settings,
+  Gift,
 } from "lucide-react-native";
 import Input from "@/components/Input";
 import Button from "@/components/Button";
@@ -437,6 +438,41 @@ export default function ProfileScreen() {
             <AlertTriangle size={14} color="#D97706" />
             <Text style={styles.rateLimitNoteText}>{t("rateLimitNotice", language)}</Text>
           </View>
+
+          {/* Referral & Rewards Navigation Row */}
+          <TouchableOpacity
+            style={[styles.settingsCardRow, darkMode && styles.settingsCardRowDark, { borderColor: "#BAE6FD" }]}
+            onPress={() => router.push("/(app)/referral")}
+            activeOpacity={0.75}
+          >
+            <View style={styles.settingsRowLeft}>
+              <View style={[styles.settingsIconCircle, { backgroundColor: "#E0F2FE" }]}>
+                <Gift size={18} color="#0284C7" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.settingsRowTitle, darkMode && styles.textDark]}>
+                    {language === "ar"
+                      ? "برنامج الإحالة والمكافآت"
+                      : language === "fr"
+                      ? "Parrainage & Gains"
+                      : "Refer & Earn"}
+                  </Text>
+                  <View style={{ backgroundColor: "#DCFCE7", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                    <Text style={{ color: "#15803D", fontSize: 10, fontWeight: "700" }}>1% CASH</Text>
+                  </View>
+                </View>
+                <Text style={styles.settingsRowSubtitle}>
+                  {language === "ar"
+                    ? "ادعُ أصدقاءك واربح عمولة على كل رحلة أو شحنة"
+                    : language === "fr"
+                    ? "Invitez vos amis et gagnez des commissions"
+                    : "Invite friends and earn on every transaction"}
+                </Text>
+              </View>
+            </View>
+            <ChevronRight size={17} color="#94A3B8" />
+          </TouchableOpacity>
 
           {/* Settings & Preferences Navigation Row */}
           <TouchableOpacity

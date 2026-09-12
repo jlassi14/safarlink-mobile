@@ -24,6 +24,7 @@ export interface User {
   countryOfResidence?: string;
   dateOfBirth?: string;
   avatar?: string;
+  referralCode?: string;
   rating?: number;
   role?: string;
   status?: string;

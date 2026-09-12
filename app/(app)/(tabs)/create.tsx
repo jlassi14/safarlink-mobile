@@ -27,7 +27,7 @@ import { createStyles as s } from "@/components/create/createStyles";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { REAL_MOCK_OFFERS, MOCK_MY_REQUESTS } from "@/lib/mockData";
 import { CURRENCIES_LIST, CurrencyOption } from "@/lib/constants";
-import { offerApi } from "@/lib/api";
+import { offerApi, demandApi } from "@/lib/api";
 
 type PostType = "offer" | "request";
 
@@ -189,26 +189,29 @@ export default function CreateScreen() {
           setConfirmVisible(false);
         }
       } else {
-        const d = reqDate ? reqDate.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) : "Flexible";
-        MOCK_MY_REQUESTS.unshift({
-          id: "req_" + Date.now(),
-          title: "Package Shipment",
-          from,
-          to,
-          status: "pending",
-          date: d,
-          reward: `${requestCurrency} ${reward}`,
-          weight: `${parseFloat(pkgKg).toFixed(1)} kg`,
-          weightKg: parseFloat(pkgKg) || 1,
-          senderName: user?.name || "Sender",
-          senderAvatar: user?.avatar,
-        });
-        setConfirmVisible(false);
-        resetForm();
-        router.push("/(app)/(tabs)/requests");
+        const payload = {
+          from: from.trim(),
+          to: to.trim(),
+          targetDate: reqDate ? reqDate.toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+          weightKg: parseFloat(pkgKg),
+          reward: parseFloat(reward),
+          currency: requestCurrency,
+          description: desc ? desc.trim() : undefined,
+        };
+
+        const res = await demandApi.createDemand(payload);
+
+        if (res.data?.success) {
+          setConfirmVisible(false);
+          resetForm();
+          router.push("/(app)/(tabs)/requests");
+        } else {
+          setServerError(res.data?.error || "Failed to publish request");
+          setConfirmVisible(false);
+        }
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Network error while publishing offer";
+      const msg = err instanceof Error ? err.message : "Network error while publishing";
       setServerError(msg);
       setConfirmVisible(false);
     } finally {

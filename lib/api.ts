@@ -5,8 +5,8 @@ import { Platform } from "react-native";
 // In development: Reads EXPO_PUBLIC_API_URL from .env, with smart fallbacks for Android/iOS/Web
 const getBaseUrl = (): string => {
   let envUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
-  if (!envUrl) {
-    envUrl = Platform.OS === "android" ? "http://10.0.2.2:5000/api/v1" : "http://localhost:5000/api/v1";
+  if (!envUrl || envUrl.includes("192.168.80.1")) {
+    envUrl = "http://192.168.135.198:5000/api/v1";
   }
   // On Android emulator, 'localhost' refers to the emulator device itself.
   // Convert 'localhost' to '10.0.2.2' to reach the host computer backend.
@@ -73,13 +73,17 @@ export const clearAuthTokens = async () => {
 // Request Interceptor: Attach JWT Bearer token
 apiClient.interceptors.request.use(
   async (config) => {
+    console.log(`[API Request] ${config.method?.toUpperCase()} ${config.baseURL || ""}${config.url || ""}`);
     const token = await getAccessToken();
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error("[API Request Error]", error);
+    return Promise.reject(error);
+  }
 );
 
 // Response Interceptor: Handle Token Refresh on 401
@@ -109,6 +113,7 @@ apiClient.interceptors.response.use(
         }
       }
     }
+    console.error(`[API Error] ${error.config?.method?.toUpperCase()} ${error.config?.baseURL || ""}${error.config?.url || ""} ->`, error.message);
     return Promise.reject(error);
   }
 );
@@ -134,6 +139,7 @@ export const authApi = {
     countryOfResidence?: string;
     dateOfBirth?: string;
     avatar?: string;
+    referralCode?: string;
   }) => apiClient.post<ApiResponse>("/auth/register", payload),
 
   login: (payload: { email: string; password: string }) =>
@@ -214,6 +220,202 @@ export const offerApi = {
   ) => apiClient.put<ApiResponse>(`/offers/${id}`, payload),
 
   deleteOffer: (id: string) => apiClient.delete<ApiResponse>(`/offers/${id}`),
+};
+
+// Referral System types
+export interface ReferralStats {
+  totalReferrals: number;
+  walletBalance: number;
+  totalEarned: number;
+  pendingRewards: number;
+  approvedRewards: number;
+}
+
+export interface ReferralWalletData {
+  id: string;
+  userId: string;
+  balance: number;
+  totalEarned: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReferralRewardItem {
+  id: string;
+  referrerId: string;
+  referredId: string;
+  transactionId: string;
+  transactionType: "DEAL" | "SHOPPING_ORDER" | "COURIER_DELIVERY";
+  amount: number;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReferredUserItem {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface PaginatedReferralsResult<T> {
+  rewards?: T[];
+  users?: T[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+// Referral API methods
+export const referralApi = {
+  getMyCode: () => apiClient.get<ApiResponse<{ referralCode: string }>>("/referral/my-code"),
+  getWallet: () => apiClient.get<ApiResponse<ReferralWalletData>>("/referral/wallet"),
+  getStats: () => apiClient.get<ApiResponse<ReferralStats>>("/referral/stats"),
+  getRewards: (page = 1, limit = 20) =>
+    apiClient.get<ApiResponse<PaginatedReferralsResult<ReferralRewardItem>>>("/referral/rewards", {
+      params: { page, limit },
+    }),
+  getReferredUsers: (page = 1, limit = 20) =>
+    apiClient.get<ApiResponse<PaginatedReferralsResult<ReferredUserItem>>>("/referral/referred-users", {
+      params: { page, limit },
+    }),
+};
+
+// Notification System types
+export type NotificationType =
+  | "DEMAND_RECEIVED"
+  | "REQUEST_ACCEPTED"
+  | "REQUEST_REJECTED"
+  | "REFERRAL_REWARD"
+  | "REFERRAL_SIGNUP"
+  | "SYSTEM";
+
+export interface BackendNotificationItem {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: NotificationType;
+  targetId?: string | null;
+  isRead: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationsResponseData {
+  notifications: BackendNotificationItem[];
+  total: number;
+  unreadCount: number;
+  page: number;
+  totalPages: number;
+}
+
+// Notification API methods
+export const notificationApi = {
+  getNotifications: (page = 1, limit = 20, unreadOnly = false) =>
+    apiClient.get<ApiResponse<NotificationsResponseData>>("/notifications", {
+      params: { page, limit, unreadOnly },
+    }),
+  getUnreadCount: () =>
+    apiClient.get<ApiResponse<{ unreadCount: number }>>("/notifications/unread-count"),
+  markAsRead: (id: string) =>
+    apiClient.patch<ApiResponse<BackendNotificationItem>>(`/notifications/${id}/read`),
+  markAllAsRead: () =>
+    apiClient.patch<ApiResponse<null>>("/notifications/read-all"),
+  deleteNotification: (id: string) =>
+    apiClient.delete<ApiResponse<null>>(`/notifications/${id}`),
+};
+
+// Demand / Request System types
+export type DemandStatus = "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED" | "COMPLETED";
+
+export interface BackendDemandItem {
+  id: string;
+  userId: string;
+  user?: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    rating?: number;
+    phone?: string;
+    email?: string;
+    isVerified?: boolean;
+    countryCode?: string | null;
+  };
+  from: string;
+  to: string;
+  targetDate: string;
+  weightKg: number;
+  reward: number;
+  currency: string;
+  description?: string | null;
+  status: DemandStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDemandPayload {
+  from: string;
+  to: string;
+  targetDate: string;
+  weightKg: number;
+  reward: number;
+  currency?: string;
+  description?: string;
+}
+
+export interface UpdateDemandPayload {
+  from?: string;
+  to?: string;
+  targetDate?: string;
+  weightKg?: number;
+  reward?: number;
+  currency?: string;
+  description?: string;
+  status?: DemandStatus;
+}
+
+export interface PaginatedDemandsResult {
+  demands: BackendDemandItem[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// Demand API methods
+export const demandApi = {
+  getDemands: (params?: {
+    from?: string;
+    to?: string;
+    targetDate?: string;
+    minWeight?: number;
+    maxWeight?: number;
+    minReward?: number;
+    currency?: string;
+    status?: DemandStatus;
+    page?: number;
+    limit?: number;
+    sortBy?: "soonest" | "highest_reward" | "lowest_weight" | "newest";
+  }) => apiClient.get<ApiResponse<PaginatedDemandsResult>>("/demands", { params }),
+
+  getMyDemands: () =>
+    apiClient.get<ApiResponse<BackendDemandItem[]>>("/demands/my-demands"),
+
+  getDemandById: (id: string) =>
+    apiClient.get<ApiResponse<BackendDemandItem>>(`/demands/${id}`),
+
+  createDemand: (payload: CreateDemandPayload) =>
+    apiClient.post<ApiResponse<BackendDemandItem>>("/demands", payload),
+
+  updateDemand: (id: string, payload: UpdateDemandPayload) =>
+    apiClient.put<ApiResponse<BackendDemandItem>>(`/demands/${id}`, payload),
+
+  deleteDemand: (id: string) =>
+    apiClient.delete<ApiResponse<null>>(`/demands/${id}`),
 };
 
 export default apiClient;
