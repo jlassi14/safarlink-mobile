@@ -113,7 +113,18 @@ apiClient.interceptors.response.use(
         }
       }
     }
-    console.error(`[API Error] ${error.config?.method?.toUpperCase()} ${error.config?.baseURL || ""}${error.config?.url || ""} ->`, error.message);
+    const serverErrorMsg =
+      error.response?.data?.error ||
+      error.response?.data?.message ||
+      error.message;
+
+    console.error(
+      `[API Error] ${error.config?.method?.toUpperCase()} ${error.config?.baseURL || ""}${error.config?.url || ""} ->`,
+      serverErrorMsg
+    );
+    if (error.response?.data) {
+      console.error("[API Error Response Data]:", JSON.stringify(error.response.data));
+    }
     return Promise.reject(error);
   }
 );
@@ -166,9 +177,97 @@ export const authApi = {
 
   getCurrentUser: () => apiClient.get<ApiResponse>("/auth/me"),
 
+  updateProfile: (payload: {
+    name?: string;
+    avatar?: string;
+    payoutEmail?: string;
+    payoutMethod?: string;
+    countryOfResidence?: string;
+    nationality?: string;
+  }) => apiClient.patch<ApiResponse>("/auth/me", payload),
+
   logout: (refreshToken?: string) =>
     apiClient.post<ApiResponse>("/auth/logout", { refreshToken }),
 };
+
+// Shipping Offers types
+export type TunisiaDeliveryMethod = "FAMILY" | "COURIER" | "I_FAST_PRO";
+export type TunisiaPaymentMethod = "CASH" | "CLICTOPAY";
+
+export interface CreateOfferPayload {
+  from: string;
+  to: string;
+  departureDate: string;
+  departureTime: string;
+  destinationDate: string;
+  destinationTime: string;
+  totalKg: number;
+  pricePerKg: number;
+  currency?: string;
+  description?: string;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
+}
+
+export interface UpdateOfferPayload {
+  from?: string;
+  to?: string;
+  departureDate?: string;
+  departureTime?: string;
+  destinationDate?: string;
+  destinationTime?: string;
+  totalKg?: number;
+  remainingKg?: number;
+  pricePerKg?: number;
+  currency?: string;
+  description?: string;
+  status?: string;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
+}
+
+export interface BackendOfferItem {
+  id: string;
+  userId: string;
+  user?: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    rating?: number;
+    phone?: string;
+    email?: string;
+    isVerified?: boolean;
+    countryCode?: string | null;
+  };
+  from: string;
+  to: string;
+  departureDate: string;
+  departureTime: string;
+  destinationDate: string;
+  destinationTime: string;
+  totalKg: number;
+  remainingKg: number;
+  pricePerKg: number;
+  currency: string;
+  description?: string | null;
+  status: string;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 // Shipping Offers API methods
 export const offerApi = {
@@ -188,36 +287,10 @@ export const offerApi = {
 
   getOfferById: (id: string) => apiClient.get<ApiResponse>(`/offers/${id}`),
 
-  createOffer: (payload: {
-    from: string;
-    to: string;
-    departureDate: string;
-    departureTime: string;
-    destinationDate: string;
-    destinationTime: string;
-    totalKg: number;
-    pricePerKg: number;
-    currency?: string;
-    description?: string;
-  }) => apiClient.post<ApiResponse>("/offers", payload),
+  createOffer: (payload: CreateOfferPayload) => apiClient.post<ApiResponse>("/offers", payload),
 
-  updateOffer: (
-    id: string,
-    payload: {
-      from?: string;
-      to?: string;
-      departureDate?: string;
-      departureTime?: string;
-      destinationDate?: string;
-      destinationTime?: string;
-      totalKg?: number;
-      remainingKg?: number;
-      pricePerKg?: number;
-      currency?: string;
-      description?: string;
-      status?: string;
-    }
-  ) => apiClient.put<ApiResponse>(`/offers/${id}`, payload),
+  updateOffer: (id: string, payload: UpdateOfferPayload) =>
+    apiClient.put<ApiResponse>(`/offers/${id}`, payload),
 
   deleteOffer: (id: string) => apiClient.delete<ApiResponse>(`/offers/${id}`),
 };
@@ -284,11 +357,24 @@ export const referralApi = {
 
 // Notification System types
 export type NotificationType =
+  | "BOOKING_CREATED"
+  | "BOOKING_ACCEPTED"
+  | "BOOKING_REJECTED"
+  | "ACTION_SUBMITTED"
+  | "BOOKING_COMPLETED"
+  | "BOOKING_CANCELLED"
+  | "BOOKING_DISPUTED"
   | "DEMAND_RECEIVED"
   | "REQUEST_ACCEPTED"
   | "REQUEST_REJECTED"
-  | "REFERRAL_REWARD"
+  | "PROPOSAL_CANCELLED"
   | "REFERRAL_SIGNUP"
+  | "REFERRAL_REWARD"
+  | "ACCOUNT_VERIFIED"
+  | "OFFER_FULLY_BOOKED"
+  | "PAYMENT_HELD"
+  | "PAYMENT_RELEASED"
+  | "PAYMENT_REFUNDED"
   | "SYSTEM";
 
 export interface BackendNotificationItem {
@@ -325,6 +411,10 @@ export const notificationApi = {
     apiClient.patch<ApiResponse<null>>("/notifications/read-all"),
   deleteNotification: (id: string) =>
     apiClient.delete<ApiResponse<null>>(`/notifications/${id}`),
+  registerPushToken: (pushToken: string) =>
+    apiClient.post<ApiResponse<null>>("/users/push-token", { pushToken }),
+  removePushToken: () =>
+    apiClient.delete<ApiResponse<null>>("/users/push-token"),
 };
 
 // Demand / Request System types
@@ -351,6 +441,12 @@ export interface BackendDemandItem {
   currency: string;
   description?: string | null;
   status: DemandStatus;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -363,6 +459,12 @@ export interface CreateDemandPayload {
   reward: number;
   currency?: string;
   description?: string;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
 }
 
 export interface UpdateDemandPayload {
@@ -374,6 +476,12 @@ export interface UpdateDemandPayload {
   currency?: string;
   description?: string;
   status?: DemandStatus;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
 }
 
 export interface PaginatedDemandsResult {
@@ -416,6 +524,264 @@ export const demandApi = {
 
   deleteDemand: (id: string) =>
     apiClient.delete<ApiResponse<null>>(`/demands/${id}`),
+};
+
+// Booking & Escrow System types
+export type BookingStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "IN_TRANSIT"
+  | "DELIVERED"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "REJECTED"
+  | "DISPUTED";
+
+export type PaymentStatus =
+  | "PENDING"
+  | "AUTHORIZED"
+  | "HELD"
+  | "RELEASED"
+  | "REFUNDED"
+  | "REFUND_PENDING"
+  | "VOIDED";
+
+export interface CreateBookingPayload {
+  offerId: string;
+  weightKg: number;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
+}
+
+export interface CreateBookingResult {
+  booking: BackendBookingItem;
+  approvalUrl: string;
+}
+
+export interface BackendBookingItem {
+  id: string;
+  offerId: string;
+  senderId: string;
+  weightKg: number;
+  totalPrice: number;
+  currency: string;
+  status: BookingStatus;
+  paymentStatus: PaymentStatus;
+  paypalOrderId?: string | null;
+  paypalAuthorizationId?: string | null;
+  paypalCaptureId?: string | null;
+  paypalRefundId?: string | null;
+  payoutStatus?: "PENDING" | "PROCESSED" | "FAILED" | null;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
+  senderAction?: "COMPLETED" | "CANCELLED" | null;
+  travelerAction?: "COMPLETED" | "CANCELLED" | null;
+  createdAt: string;
+  updatedAt: string;
+  offer?: {
+    id: string;
+    from: string;
+    to: string;
+    departureDate: string;
+    departureTime?: string;
+    destinationDate?: string;
+    destinationTime?: string;
+    pricePerKg: number;
+    currency: string;
+    user?: {
+      id: string;
+      name: string;
+      avatar?: string | null;
+      rating?: number;
+      phone?: string;
+      email?: string;
+    };
+  };
+  sender?: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    rating?: number;
+    phone?: string;
+    email?: string;
+  };
+}
+
+// Booking API methods
+export const bookingApi = {
+  createBooking: (payload: CreateBookingPayload) =>
+    apiClient.post<ApiResponse<CreateBookingResult>>("/bookings", payload),
+
+  confirmPayment: (id: string) =>
+    apiClient.post<ApiResponse<BackendBookingItem>>(`/bookings/${id}/confirm-payment`),
+
+  getMyBookings: () =>
+    apiClient.get<ApiResponse<BackendBookingItem[]>>("/bookings/my-bookings"),
+
+  getBooking: (id: string) =>
+    apiClient.get<ApiResponse<BackendBookingItem>>(`/bookings/${id}`),
+
+  getOfferBookings: (offerId: string) =>
+    apiClient.get<ApiResponse<BackendBookingItem[]>>(`/bookings/offer/${offerId}`),
+
+  acceptBooking: (id: string) =>
+    apiClient.patch<ApiResponse<BackendBookingItem>>(`/bookings/${id}/accept`),
+
+  rejectBooking: (id: string) =>
+    apiClient.patch<ApiResponse<BackendBookingItem>>(`/bookings/${id}/reject`),
+
+  markInTransit: (id: string) =>
+    apiClient.patch<ApiResponse<BackendBookingItem>>(`/bookings/${id}/in-transit`),
+
+  markDelivered: (id: string) =>
+    apiClient.patch<ApiResponse<BackendBookingItem>>(`/bookings/${id}/deliver`),
+
+  completeBooking: (id: string) =>
+    apiClient.patch<ApiResponse<BackendBookingItem>>(`/bookings/${id}/complete`),
+
+  cancelBooking: (id: string) =>
+    apiClient.patch<ApiResponse<BackendBookingItem>>(`/bookings/${id}/cancel`),
+
+  disputeBooking: (id: string) =>
+    apiClient.patch<ApiResponse<BackendBookingItem>>(`/bookings/${id}/dispute`),
+
+  submitBookingAction: (
+    id: string,
+    action: "COMPLETED" | "CANCELLED",
+    role?: "SENDER" | "TRAVELER"
+  ) =>
+    apiClient.post<ApiResponse<BackendBookingItem>>(`/bookings/${id}/action`, {
+      action,
+      role,
+    }),
+};
+
+// Proposal System types
+export type ProposalStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "DELIVERED"
+  | "COMPLETED"
+  | "REJECTED"
+  | "CANCELLED"
+  | "DISPUTED";
+
+export interface BackendProposalItem {
+  id: string;
+  demandId: string;
+  travelerId: string;
+  flightDate: string;
+  flightTime?: string;
+  arrivalDate?: string;
+  arrivalTime?: string;
+  proposedPrice?: string;
+  notes?: string;
+  status: ProposalStatus;
+  paymentStatus?: string;
+  paypalOrderId?: string | null;
+  paypalCaptureId?: string | null;
+  senderAction?: string | null;
+  travelerAction?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  traveler?: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    rating?: number;
+    phone?: string;
+    email?: string;
+  };
+  demand?: BackendDemandItem;
+}
+
+// Proposal API methods
+export const proposalApi = {
+  createProposal: (payload: {
+    demandId: string;
+    flightDate: string;
+    flightTime?: string;
+    arrivalDate?: string;
+    arrivalTime?: string;
+    proposedPrice?: string;
+    notes?: string;
+  }) => apiClient.post<ApiResponse<BackendProposalItem>>("/proposals", payload),
+
+  getMyProposals: () =>
+    apiClient.get<ApiResponse<BackendProposalItem[]>>("/proposals/my-proposals"),
+
+  getDemandProposals: (demandId: string) =>
+    apiClient.get<ApiResponse<BackendProposalItem[]>>(`/proposals/demand/${demandId}`),
+
+  acceptProposal: (
+    id: string,
+    paymentData?: {
+      paypalOrderId?: string;
+      paypalCaptureId?: string;
+      paymentMethod?: string;
+    }
+  ) =>
+    apiClient.patch<ApiResponse<BackendProposalItem>>(
+      `/proposals/${id}/accept`,
+      paymentData
+    ),
+
+  rejectProposal: (id: string) =>
+    apiClient.patch<ApiResponse<BackendProposalItem>>(`/proposals/${id}/reject`),
+
+  markDelivered: (id: string) =>
+    apiClient.patch<ApiResponse<BackendProposalItem>>(`/proposals/${id}/deliver`),
+
+  completeProposal: (id: string) =>
+    apiClient.patch<ApiResponse<BackendProposalItem>>(`/proposals/${id}/complete`),
+
+  cancelProposal: (id: string) =>
+    apiClient.patch<ApiResponse<BackendProposalItem>>(`/proposals/${id}/cancel`),
+
+  disputeProposal: (id: string, reason?: string) =>
+    apiClient.post<ApiResponse<BackendProposalItem>>(`/proposals/${id}/dispute`, {
+      reason,
+    }),
+
+  getProposalById: (id: string) =>
+    apiClient.get<ApiResponse<BackendProposalItem>>(`/proposals/${id}`),
+
+  submitProposalAction: (id: string, action: "COMPLETED" | "CANCELLED") =>
+    apiClient.post<ApiResponse<BackendProposalItem>>(`/proposals/${id}/action`, {
+      action,
+    }),
+};
+
+export interface PublicUserProfile {
+  id: string;
+  name: string;
+  avatar?: string | null;
+  rating?: number;
+  reviewCount?: number;
+  isPhoneVerified?: boolean;
+  isIdentityVerified?: boolean;
+  phone?: string;
+  email?: string;
+  createdAt: string;
+  _count?: {
+    offers?: number;
+    demands?: number;
+    bookings?: number;
+    proposals?: number;
+  };
+}
+
+export const userApi = {
+  getUserProfile: (id: string) =>
+    apiClient.get<ApiResponse<PublicUserProfile>>(`/users/${id}`),
 };
 
 export default apiClient;

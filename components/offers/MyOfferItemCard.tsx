@@ -36,17 +36,24 @@ export default function MyOfferItemCard({
   const { language, darkMode } = useAppStore();
   const primaryColor = colors.primary || "#2563EB";
 
-  const acceptedSumKg = item.demands
+  const bookedFromDemands = item.demands
     ? item.demands
-        .filter((d) => d.status === "accepted")
-        .reduce((sum, d) => sum + (d.weightKg || 0), 0)
+        .filter((d) => ["accepted", "in_transit", "delivered", "completed"].includes(d.status))
+        .reduce((sum, d) => sum + (Number(d.weightKg) || 0), 0)
     : 0;
 
-  const remainingKg = Math.max(0, item.totalKg - acceptedSumKg);
-  const isFullyBooked = remainingKg === 0;
-  const hasAccepted = acceptedSumKg > 0;
+  const totalKg = Number(item.totalKg) || 0;
+  const remainingKg =
+    typeof item.remainingKg === "number" && !isNaN(item.remainingKg)
+      ? item.remainingKg
+      : Math.max(0, totalKg - bookedFromDemands);
+
+  const bookedKg = Math.max(0, totalKg - remainingKg);
+  const bookedPercent = totalKg > 0 ? Math.min(100, (bookedKg / totalKg) * 100) : 0;
+  const isFullyBooked = remainingKg <= 0 || (totalKg > 0 && bookedKg >= totalKg);
+  const hasAccepted = bookedKg > 0;
   const pendingCount = item.demands ? item.demands.filter((d) => d.status === "pending").length : 0;
-  const acceptedCount = item.demands ? item.demands.filter((d) => d.status === "accepted").length : 0;
+  const acceptedCount = item.demands ? item.demands.filter((d) => ["accepted", "in_transit", "delivered", "completed"].includes(d.status)).length : 0;
 
   const renderLocation = (loc: string, isRight: boolean = false) => {
     if (!loc) return null;
@@ -222,19 +229,30 @@ export default function MyOfferItemCard({
       {/* Capacity Progress Bar */}
       <View style={[styles.capacityBox, darkMode && styles.capacityBoxDark]}>
         <View style={styles.capacityHeader}>
-          <Text style={styles.capacityLabel}>
-            {t("remainingCapacity", language)}
-          </Text>
-          <Text style={[styles.capacityValue, isFullyBooked && styles.textDanger]}>
-            {remainingKg.toFixed(1)} / {item.totalKg} kg
-          </Text>
+          <View>
+            <Text style={[styles.capacityLabel, darkMode && styles.textMutedDark]}>
+              {t("remainingCapacity", language)}
+            </Text>
+            <Text style={[styles.capacityHighlight, isFullyBooked && styles.textDanger]}>
+              {remainingKg.toFixed(1)} kg {language === "ar" ? "متاح" : language === "fr" ? "disponible" : "available"}
+            </Text>
+          </View>
+
+          <View style={styles.capacityBookedCol}>
+            <Text style={[styles.capacityBookedLabel, darkMode && styles.textMutedDark]}>
+              {language === "ar" ? "المحجوز" : language === "fr" ? "Réservé" : "Booked"}
+            </Text>
+            <Text style={[styles.capacityBookedValue, darkMode && styles.textDark]}>
+              {bookedKg.toFixed(1)} / {totalKg} kg
+            </Text>
+          </View>
         </View>
         <View style={styles.progressBarTrack}>
           <View
             style={[
               styles.progressBarFill,
               {
-                width: `${Math.min(100, (acceptedSumKg / item.totalKg) * 100)}%`,
+                width: `${bookedPercent}%`,
                 backgroundColor: isFullyBooked ? "#DC2626" : primaryColor,
               },
             ]}
@@ -497,21 +515,41 @@ const styles = StyleSheet.create({
   capacityHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
+    alignItems: "flex-end",
+    marginBottom: 8,
   },
   capacityLabel: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: "#64748B",
     fontWeight: "600",
+    marginBottom: 2,
   },
-  capacityValue: {
-    fontSize: 12,
+  capacityHighlight: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#059669",
+  },
+  capacityBookedCol: {
+    alignItems: "flex-end",
+  },
+  capacityBookedLabel: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "600",
+    marginBottom: 2,
+    textAlign: "right",
+  },
+  capacityBookedValue: {
+    fontSize: 12.5,
     fontWeight: "800",
     color: "#0F172A",
+    textAlign: "right",
   },
   textDanger: {
     color: "#DC2626",
+  },
+  textMutedDark: {
+    color: "#94A3B8",
   },
   progressBarTrack: {
     height: 6,

@@ -40,6 +40,7 @@ import {
   Package,
   Settings,
   Gift,
+  Wallet,
 } from "lucide-react-native";
 import Input from "@/components/Input";
 import Button from "@/components/Button";
@@ -47,9 +48,9 @@ import OTPInput from "@/components/OTPInput";
 import DatePickerInput from "@/components/DatePickerInput";
 import PhoneInput, { COUNTRIES_LIST, CountryPhoneSchema } from "@/components/PhoneInput";
 import { MOCK_DEMO_AVATARS } from "@/lib/constants";
-import { MOCK_MY_APPLICATIONS } from "@/lib/mockData";
 import { authApi, getRefreshToken, clearAuthTokens } from "@/lib/api";
 import LogoutConfirmModal from "@/components/LogoutConfirmModal";
+import { unregisterPushNotificationAsync } from "@/lib/notifications";
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -66,10 +67,47 @@ export default function ProfileScreen() {
   const [showDemandModal, setShowDemandModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [showPayoutModal, setShowPayoutModal] = useState(false);
+  const [payoutEmailInput, setPayoutEmailInput] = useState(user?.payoutEmail || user?.email || "");
+  const [payoutSaving, setPayoutSaving] = useState(false);
+
+  const handleSavePayoutEmail = async () => {
+    if (!payoutEmailInput.trim() || !payoutEmailInput.includes("@")) {
+      Alert.alert(
+        language === "ar" ? "بريد إلكتروني غير صالح" : "Email invalide",
+        language === "ar"
+          ? "يرجى إدخال عنوان بريد إلكتروني صحيح لحساب PayPal الخاص بك."
+          : "Veuillez entrer une adresse email PayPal valide pour recevoir vos paiements."
+      );
+      return;
+    }
+
+    try {
+      setPayoutSaving(true);
+      const res = await authApi.updateProfile({ payoutEmail: payoutEmailInput.trim() });
+      if (res.data?.success) {
+        updateUser({ payoutEmail: payoutEmailInput.trim() });
+        setShowPayoutModal(false);
+        Alert.alert(
+          language === "ar" ? "تم الحفظ بنجاح" : "Enregistré avec succès",
+          language === "ar"
+            ? "سيتم إرسال أرباحك تلقائياً إلى هذا الحساب عند تأكيد التسليم."
+            : "Vos gains de livraison seront automatiquement transférés sur ce compte PayPal."
+        );
+      } else {
+        Alert.alert("Error", res.data?.message || "Failed to update payout email");
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err?.response?.data?.message || err?.message || "Failed to update");
+    } finally {
+      setPayoutSaving(false);
+    }
+  };
 
   const handleConfirmLogout = async () => {
     setLogoutLoading(true);
     try {
+      await unregisterPushNotificationAsync().catch(() => {});
       const refreshToken = await getRefreshToken();
       await authApi.logout(refreshToken || undefined);
     } catch (e) {
@@ -439,6 +477,46 @@ export default function ProfileScreen() {
             <Text style={styles.rateLimitNoteText}>{t("rateLimitNotice", language)}</Text>
           </View>
 
+          {/* Payout Settings (PayPal Payouts) */}
+          <TouchableOpacity
+            style={[styles.settingsCardRow, darkMode && styles.settingsCardRowDark, { borderColor: "#A7F3D0" }]}
+            onPress={() => {
+              setPayoutEmailInput(user?.payoutEmail || user?.email || "");
+              setShowPayoutModal(true);
+            }}
+            activeOpacity={0.75}
+          >
+            <View style={styles.settingsRowLeft}>
+              <View style={[styles.settingsIconCircle, { backgroundColor: "#ECFDF5" }]}>
+                <Wallet size={18} color="#059669" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.settingsRowTitle, darkMode && styles.textDark]}>
+                    {language === "ar"
+                      ? "استلام الأرباح (PayPal)"
+                      : language === "fr"
+                      ? "Réception des gains (PayPal)"
+                      : "Payout Method (PayPal)"}
+                  </Text>
+                  <View style={{ backgroundColor: "#DCFCE7", paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                    <Text style={{ color: "#166534", fontSize: 10, fontWeight: "700" }}>AUTO</Text>
+                  </View>
+                </View>
+                <Text style={styles.settingsRowSubtitle} numberOfLines={1}>
+                  {user?.payoutEmail
+                    ? user.payoutEmail
+                    : user?.email
+                    ? `${user.email} (Par défaut)`
+                    : language === "ar"
+                    ? "أدخل بريدك في PayPal لاستلام أرباحك"
+                    : "Configurez votre email PayPal"}
+                </Text>
+              </View>
+            </View>
+            <ChevronRight size={17} color="#94A3B8" />
+          </TouchableOpacity>
+
           {/* Referral & Rewards Navigation Row */}
           <TouchableOpacity
             style={[styles.settingsCardRow, darkMode && styles.settingsCardRowDark, { borderColor: "#BAE6FD" }]}
@@ -678,6 +756,57 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               )}
             />
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Payout Settings Modal (PayPal Payouts) */}
+      <Modal
+        visible={showPayoutModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowPayoutModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1 }}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setShowPayoutModal(false)}>
+            <Pressable onPress={(e) => e.stopPropagation()} style={[styles.modalContent, darkMode && styles.modalContentDark, { paddingBottom: 24 + bottomInset }]}>
+              <View style={[styles.modalHeader, darkMode && styles.modalHeaderDark]}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Wallet size={20} color="#059669" />
+                  <Text style={[styles.modalTitle, darkMode && styles.textDark]}>
+                    {language === "ar" ? "استلام الأرباح (PayPal)" : "Réception des Gains (PayPal)"}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowPayoutModal(false)}>
+                  <X size={20} color={darkMode ? "#FFFFFF" : "#6B7280"} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.noticeText, darkMode && styles.textDark]}>
+                {language === "ar"
+                  ? "عند تأكيد تسليم الشحنة من الطرفين، سيتم إرسال أرباحك تلقائياً وبشكل فوري إلى حسابك في PayPal."
+                  : "Dès que la livraison est validée par les deux parties, vos gains seront automatiquement transférés sur votre compte PayPal."}
+              </Text>
+
+              <Input
+                icon={Mail}
+                placeholder="votre-email-paypal@exemple.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={payoutEmailInput}
+                onChangeText={setPayoutEmailInput}
+              />
+
+              <Button
+                title={payoutSaving ? (language === "ar" ? "جاري الحفظ..." : "Enregistrement...") : (language === "ar" ? "حفظ وتأكيد البريد" : "Sauvegarder l'email PayPal")}
+                onPress={handleSavePayoutEmail}
+                variant="primary"
+                disabled={payoutSaving}
+              />
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>

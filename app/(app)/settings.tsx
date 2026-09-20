@@ -27,6 +27,7 @@ import {
 } from "lucide-react-native";
 import { authApi, getRefreshToken, clearAuthTokens } from "@/lib/api";
 import LogoutConfirmModal from "@/components/LogoutConfirmModal";
+import { unregisterPushNotificationAsync } from "@/lib/notifications";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -42,6 +43,7 @@ export default function SettingsScreen() {
   const handleConfirmLogout = async () => {
     setLogoutLoading(true);
     try {
+      await unregisterPushNotificationAsync().catch(() => {});
       const refreshToken = await getRefreshToken();
       await authApi.logout(refreshToken || undefined);
     } catch (e) {

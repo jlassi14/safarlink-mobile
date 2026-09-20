@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
+import { useRouter } from "expo-router";
 import { Package, MapPin, Clock, ArrowRight, Send, CheckCircle2 } from "lucide-react-native";
 import { DemandItem, MyPackageRequest } from "@/lib/mockData";
 import { useAppStore } from "@/lib/store";
@@ -30,6 +31,7 @@ export const DemandCard: React.FC<DemandCardProps> = ({
   onReject,
   onRevoke,
 }) => {
+  const router = useRouter();
   const { language, darkMode } = useAppStore();
   const primaryColor = colors.primary || "#2563EB";
 
@@ -46,8 +48,21 @@ export const DemandCard: React.FC<DemandCardProps> = ({
 
   const weightText = getCleanWeight(demand.weight || `${demand.weightKg || "1.0"} kg`);
   const rewardText = demand.proposedPrice || demand.reward || "QR 100";
-  const status = demand.status || "pending";
-  const dateText = demand.createdAt || demand.date || "Today";
+  const dateText = React.useMemo(() => {
+    const raw = demand.createdAt || demand.date;
+    if (!raw) return "Today";
+    try {
+      const d = new Date(raw);
+      if (isNaN(d.getTime())) return raw;
+      return d.toLocaleDateString(language === "ar" ? "ar-TN" : "fr-FR", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    } catch {
+      return raw;
+    }
+  }, [demand.createdAt, demand.date, language]);
   const notes = demand.notes || demand.description || "";
   const fromLoc = demand.from || "";
   const toLoc = demand.to || "";
@@ -76,7 +91,23 @@ export const DemandCard: React.FC<DemandCardProps> = ({
     <View style={[styles.card, darkMode && styles.cardDark]}>
       {/* Header: Sender Profile & Optional Status Badge */}
       <View style={styles.headerRow}>
-        <View style={styles.senderProfile}>
+        <TouchableOpacity
+          style={styles.senderProfile}
+          onPress={() => {
+            const uid = demand.userId || (demand as any).user?.id;
+            if (uid) {
+              router.push({
+                pathname: "/(app)/user/[id]",
+                params: {
+                  id: uid,
+                  name: senderName,
+                  avatar: senderAvatar,
+                },
+              });
+            }
+          }}
+          activeOpacity={0.8}
+        >
           <Image source={{ uri: senderAvatar }} style={styles.avatar} />
           <View style={styles.senderInfo}>
             <Text style={[styles.senderName, darkMode && styles.textDark]} numberOfLines={1}>
@@ -86,7 +117,7 @@ export const DemandCard: React.FC<DemandCardProps> = ({
               {receivePrefix}{dateText}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {showStatusBadge && (
           <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
@@ -99,13 +130,31 @@ export const DemandCard: React.FC<DemandCardProps> = ({
 
       {/* Route: Depart (Left), Arrow (Center), Destination (Right) */}
       {fromLoc && toLoc ? (
-        <View style={[styles.routeBox, darkMode && styles.routeBoxDark]}>
+        <TouchableOpacity
+          style={[styles.routeBox, darkMode && styles.routeBoxDark]}
+          onPress={onPress ? onPress : () => router.push(`/(app)/request/${demand.id}`)}
+          activeOpacity={0.85}
+        >
           <Text style={[styles.routeTextCity, darkMode && styles.textDark]} numberOfLines={1}>
             {fromLoc}
           </Text>
           <Text style={styles.routeTextArrow}>➔</Text>
           <Text style={[styles.routeTextCity, styles.textRight, darkMode && styles.textDark]} numberOfLines={1}>
             {toLoc}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {/* Tunisia Domestic Delivery Badge */}
+      {demand.deliveryMethod ? (
+        <View style={[styles.deliveryBadge, darkMode && styles.deliveryBadgeDark]}>
+          <Text style={styles.deliveryBadgeFlag}>🇹🇳</Text>
+          <Text style={[styles.deliveryBadgeText, darkMode && styles.deliveryBadgeTextDark]} numberOfLines={1}>
+            {demand.deliveryMethod === "FAMILY"
+              ? `${t("deliveryMethodFamily", language)}${demand.deliveryContactName ? `: ${demand.deliveryContactName}` : ""}${demand.deliveryContactPhone ? ` • 📞 ${demand.deliveryContactPhone}` : ""}`
+              : demand.deliveryMethod === "COURIER"
+              ? `${t("deliveryMethodCourier", language)}${demand.deliveryAddress ? ` • ${demand.deliveryAddress}` : ""}`
+              : `${t("deliveryMethodIFastPro", language)}${demand.deliveryAddress ? ` • ${demand.deliveryAddress}` : " (Express)"}`}
           </Text>
         </View>
       ) : null}
@@ -395,6 +444,31 @@ const styles = StyleSheet.create({
   },
   textDark: {
     color: "#FFFFFF",
+  },
+  deliveryBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 8,
+    gap: 6,
+  },
+  deliveryBadgeDark: {
+    backgroundColor: "#111827",
+  },
+  deliveryBadgeFlag: {
+    fontSize: 13,
+  },
+  deliveryBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#374151",
+    flex: 1,
+  },
+  deliveryBadgeTextDark: {
+    color: "#D1D5DB",
   },
 });
 

@@ -18,6 +18,7 @@
     },
     "android": {
       "package": "com.safarlink.app",
+      "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./public/adaptive-icon.png",
@@ -31,7 +32,9 @@
       "expo-router",
       "expo-font",
       "expo-splash-screen",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-web-browser",
+      "@react-native-firebase/app"
     ],
     "runtimeVersion": "1.0.0"
   }

@@ -35,7 +35,12 @@ export const RequestsEmptyState: React.FC<RequestsEmptyStateProps> = ({
         </Text>
         <TouchableOpacity
           style={[styles.emptyActionBtn, { backgroundColor: primaryColor }]}
-          onPress={() => router.push("/(app)/(tabs)/create")}
+          onPress={() =>
+            router.push({
+              pathname: "/(app)/(tabs)/create",
+              params: { type: "request", t: Date.now().toString() },
+            })
+          }
           activeOpacity={0.85}
         >
           <Text style={styles.emptyActionBtnText}>

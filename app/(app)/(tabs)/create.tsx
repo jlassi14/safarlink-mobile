@@ -9,6 +9,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Keyboard,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppStore } from "@/lib/store";
@@ -22,14 +23,39 @@ import CreateModeBanner from "@/components/create/CreateModeBanner";
 import CreateRouteCard from "@/components/create/CreateRouteCard";
 import CreateOfferForm from "@/components/create/CreateOfferForm";
 import CreateRequestForm from "@/components/create/CreateRequestForm";
+import TunisiaDeliverySection from "@/components/create/TunisiaDeliverySection";
 import AlertBanner from "@/components/AlertBanner";
 import { createStyles as s } from "@/components/create/createStyles";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
-import { REAL_MOCK_OFFERS, MOCK_MY_REQUESTS } from "@/lib/mockData";
 import { CURRENCIES_LIST, CurrencyOption } from "@/lib/constants";
-import { offerApi, demandApi } from "@/lib/api";
+import {
+  offerApi,
+  demandApi,
+  TunisiaDeliveryMethod,
+  TunisiaPaymentMethod,
+  CreateOfferPayload,
+  CreateDemandPayload,
+} from "@/lib/api";
 
 type PostType = "offer" | "request";
+
+const isTunisiaLocation = (loc: string): boolean => {
+  if (!loc) return false;
+  const l = loc.toLowerCase();
+  return (
+    l.includes("tunisia") ||
+    l.includes("tunisie") ||
+    l.includes("tunis") ||
+    l.includes("monastir") ||
+    l.includes("sfax") ||
+    l.includes("djerba") ||
+    l.includes("تونس") ||
+    l.includes("المنستير") ||
+    l.includes("صفاقس") ||
+    l.includes("جربة") ||
+    l.includes("🇹🇳")
+  );
+};
 
 export default function CreateScreen() {
   const router = useRouter();
@@ -61,12 +87,22 @@ export default function CreateScreen() {
   const [requestCurrency, setRequestCurrency] = useState<string>("QAR");
   const [desc, setDesc] = useState("");
 
+  // Tunisia Domestic Delivery State
+  const [deliveryMethod, setDeliveryMethod] = useState<TunisiaDeliveryMethod | null>(null);
+  const [deliveryContactName, setDeliveryContactName] = useState("");
+  const [deliveryContactPhone, setDeliveryContactPhone] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState("");
+  const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<TunisiaPaymentMethod>("CASH");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+
   const [currencyModalVisible, setCurrencyModalVisible] = useState(false);
   const [pickerMode, setPickerMode] = useState<"from" | "to" | null>(null);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [err, setErr] = useState<Record<string, string | undefined>>({});
+
+  const isTunisia = isTunisiaLocation(from) || isTunisiaLocation(to);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -89,9 +125,12 @@ export default function CreateScreen() {
   }, []);
 
   useEffect(() => {
-    if (params.type === "request" || params.mode === "request") setPostType("request");
-    else if (params.type === "offer" || params.mode === "offer") setPostType("offer");
-  }, [params.type, params.mode]);
+    if (params.type === "request" || params.mode === "request") {
+      setPostType("request");
+    } else if (params.type === "offer" || params.mode === "offer") {
+      setPostType("offer");
+    }
+  }, [params.type, params.mode, params.t]);
 
   const resetForm = useCallback(() => {
     setFrom("");
@@ -108,13 +147,28 @@ export default function CreateScreen() {
     setReward("");
     setRequestCurrency("QAR");
     setDesc("");
+    setDeliveryMethod(null);
+    setDeliveryContactName("");
+    setDeliveryContactPhone("");
+    setDeliveryFee("");
+    setDeliveryPaymentMethod("CASH");
+    setDeliveryAddress("");
     setErr({});
     setPickerMode(null);
     setCurrencyModalVisible(false);
     setConfirmVisible(false);
   }, []);
 
-  useFocusEffect(useCallback(() => resetForm(), [resetForm]));
+  useFocusEffect(
+    useCallback(() => {
+      resetForm();
+      if (params.type === "request" || params.mode === "request") {
+        setPostType("request");
+      } else if (params.type === "offer" || params.mode === "offer") {
+        setPostType("offer");
+      }
+    }, [resetForm, params.type, params.mode, params.t])
+  );
 
   const swapRoute = () => {
     const tmp = from;
@@ -155,8 +209,47 @@ export default function CreateScreen() {
       if (!pkgKg.trim() || parseFloat(pkgKg) <= 0) e.weight = t("validWeightError", language);
       if (!reward.trim() || parseFloat(reward) <= 0) e.price = t("validPriceError", language);
     }
+
+    // Tunisia Local Delivery validation (ONLY for parcel senders/requests, NOT for traveler offers)
+    if (!isOffer && isTunisia) {
+      if (!deliveryMethod) {
+        e.deliveryMethod = t("deliveryMethodRequired", language);
+      } else if (deliveryMethod === "FAMILY") {
+        if (!deliveryContactName.trim()) {
+          e.deliveryContactName = t("deliveryContactNameRequired", language);
+        }
+        if (!deliveryContactPhone.trim()) {
+          e.deliveryContactPhone = t("deliveryContactPhoneRequired", language);
+        }
+      } else if (deliveryMethod === "COURIER") {
+        if (!deliveryFee.trim() || parseFloat(deliveryFee) <= 0) {
+          e.deliveryFee = t("deliveryFeeRequired", language);
+        }
+      } else if (deliveryMethod === "I_FAST_PRO") {
+        if (!deliveryAddress.trim()) {
+          e.deliveryAddress = t("deliveryAddressRequired", language);
+        }
+      }
+    }
+
     setErr(e);
     return Object.keys(e).length === 0;
+  };
+
+  const handlePublishPress = () => {
+    Keyboard.dismiss();
+    if (validate()) {
+      setConfirmVisible(true);
+    } else {
+      Alert.alert(
+        language === "ar" ? "تنبيه" : language === "fr" ? "Champs obligatoires" : "Required fields",
+        language === "ar"
+          ? "يرجى ملء جميع الحقول المطلوبة بشكل صحيح (المسار، التاريخ، الوزن، والمكافأة)."
+          : language === "fr"
+          ? "Veuillez remplir correctement tous les champs obligatoires (trajet, date, poids et récompense)."
+          : "Please fill in all required fields correctly (route, date, weight, and reward)."
+      );
+    }
   };
 
   const submit = async () => {
@@ -165,7 +258,7 @@ export default function CreateScreen() {
 
     try {
       if (postType === "offer") {
-        const payload = {
+        const payload: CreateOfferPayload = {
           from: from.trim(),
           to: to.trim(),
           departureDate: depDate ? depDate.toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
@@ -189,7 +282,7 @@ export default function CreateScreen() {
           setConfirmVisible(false);
         }
       } else {
-        const payload = {
+        const payload: CreateDemandPayload = {
           from: from.trim(),
           to: to.trim(),
           targetDate: reqDate ? reqDate.toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
@@ -197,6 +290,15 @@ export default function CreateScreen() {
           reward: parseFloat(reward),
           currency: requestCurrency,
           description: desc ? desc.trim() : undefined,
+          deliveryMethod: isTunisia ? deliveryMethod : null,
+          deliveryContactName: isTunisia && deliveryMethod === "FAMILY" ? deliveryContactName.trim() : null,
+          deliveryContactPhone: isTunisia && deliveryMethod === "FAMILY" ? deliveryContactPhone.trim() : null,
+          deliveryFee: isTunisia && deliveryMethod === "COURIER" && deliveryFee ? parseFloat(deliveryFee) : null,
+          deliveryPaymentMethod: isTunisia && (deliveryMethod === "COURIER" || deliveryMethod === "I_FAST_PRO") ? deliveryPaymentMethod : null,
+          deliveryAddress:
+            isTunisia && (deliveryMethod === "I_FAST_PRO" || deliveryMethod === "COURIER")
+              ? deliveryAddress.trim() || null
+              : null,
         };
 
         const res = await demandApi.createDemand(payload);
@@ -217,6 +319,23 @@ export default function CreateScreen() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const getDeliveryMethodSummary = () => {
+    if (isOffer || !isTunisia || !deliveryMethod) return undefined;
+    if (deliveryMethod === "FAMILY") {
+      const contactInfo = [deliveryContactName, deliveryContactPhone].filter(Boolean).join(" • 📞 ");
+      return `${t("deliveryMethodFamily", language)}${contactInfo ? ` (${contactInfo})` : ""}`;
+    }
+    if (deliveryMethod === "COURIER") {
+      const payLabel = deliveryPaymentMethod === "CASH" ? t("payCash", language) : t("payClicToPay", language);
+      return `${t("deliveryMethodCourier", language)} - ${deliveryFee || "0"} TND (${payLabel})`;
+    }
+    if (deliveryMethod === "I_FAST_PRO") {
+      const payLabel = deliveryPaymentMethod === "CASH" ? t("payCash", language) : t("payClicToPay", language);
+      return `i Fast Pro (${payLabel})`;
+    }
+    return undefined;
   };
 
   const isOffer = postType === "offer";
@@ -321,23 +440,51 @@ export default function CreateScreen() {
               pkgKg={pkgKg} setPkgKg={setPkgKg}
               reward={reward} setReward={setReward}
               currency={requestCurrency}
+              desc={desc} setDesc={setDesc}
               onOpenCurrencyModal={() => setCurrencyModalVisible(true)}
               onFocusInput={scrollToBottom}
               errors={err} clearError={clearError}
             />
           )}
 
+          {/* Tunisia Domestic Delivery Section - Renders ONLY for parcel senders when from/to is in Tunisia */}
+          {!isOffer && isTunisia && (
+            <TunisiaDeliverySection
+              deliveryMethod={deliveryMethod}
+              setDeliveryMethod={setDeliveryMethod}
+              contactName={deliveryContactName}
+              setContactName={setDeliveryContactName}
+              contactPhone={deliveryContactPhone}
+              setContactPhone={setDeliveryContactPhone}
+              deliveryFee={deliveryFee}
+              setDeliveryFee={setDeliveryFee}
+              paymentMethod={deliveryPaymentMethod}
+              setPaymentMethod={setDeliveryPaymentMethod}
+              deliveryAddress={deliveryAddress}
+              setDeliveryAddress={setDeliveryAddress}
+              errors={err}
+              clearError={clearError}
+              onFocusInput={scrollToBottom}
+            />
+          )}
+
           {/* Publish Action Button */}
           <TouchableOpacity
             style={[s.publishBtn, busy && { opacity: 0.6 }]}
-            onPress={() => { Keyboard.dismiss(); if (validate()) setConfirmVisible(true); }}
+            onPress={handlePublishPress}
             disabled={busy}
             activeOpacity={0.85}
           >
-            <Send size={17} color="#FFFFFF" />
-            <Text style={s.publishText}>
-              {isOffer ? t("publishOfferButton", language) : t("publishRequestButton", language)}
-            </Text>
+            {busy ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Send size={17} color="#FFFFFF" />
+                <Text style={s.publishText}>
+                  {isOffer ? t("publishOfferButton", language) : t("publishRequestButton", language)}
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -380,6 +527,7 @@ export default function CreateScreen() {
         weightText={isOffer ? `${offerKg} kg` : `${pkgKg} kg`}
         priceOrRewardText={isOffer ? `${offerCurrency} ${priceKg} / kg` : `${requestCurrency} ${reward}`}
         descriptionText={!isOffer ? desc : undefined}
+        deliveryMethodText={getDeliveryMethodSummary()}
         loading={busy}
         onConfirm={submit}
         onClose={() => setConfirmVisible(false)}

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   ScrollView,
@@ -7,14 +7,14 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppStore } from "@/lib/store";
-import { demandApi } from "@/lib/api";
+import { demandApi, proposalApi, BackendProposalItem } from "@/lib/api";
 import {
-  MOCK_MY_APPLICATIONS,
   MyPackageRequest,
   MyApplicationItem,
+  TravelerProposal,
 } from "@/lib/mockData";
 import { t } from "@/lib/i18n";
 import { colors } from "@/lib/theme";
@@ -30,10 +30,12 @@ import {
   RequestsEmptyState,
   EditDemandModal,
 } from "@/components/requests";
+import AcceptProposalPaymentModal from "@/components/requests/AcceptProposalPaymentModal";
 
 export default function RequestsScreen() {
   const { language, darkMode } = useAppStore();
   const primaryColor = colors.primary || "#2563EB";
+  const params = useLocalSearchParams<{ mode?: string; targetId?: string; expandId?: string; t?: string }>();
 
   // Mode: 1. Mes Demandes (Default) vs 2. Mes Candidatures
   const [currentMode, setCurrentMode] = useState<ModeTab>("my_demands");
@@ -43,11 +45,52 @@ export default function RequestsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Applications list for Demands (Proposals user submitted on package requests)
+  const [applicationsList, setApplicationsList] = useState<MyApplicationItem[]>([]);
+  const [appFilterTab, setAppFilterTab] = useState<AppFilterTab>("all");
+
+  // Payment Modal State for Accepting Proposals
+  const [selectedProposalForPayment, setSelectedProposalForPayment] = useState<BackendProposalItem | null>(null);
+  const [selectedDemandForPayment, setSelectedDemandForPayment] = useState<any | null>(null);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+
   const fetchMyDemands = useCallback(async () => {
     try {
       const res = await demandApi.getMyDemands();
       if (res.data?.success && Array.isArray(res.data.data)) {
-        const mapped = res.data.data.map(mapBackendDemand);
+        const mapped = await Promise.all(
+          res.data.data.map(async (d: any) => {
+            const base = mapBackendDemand(d);
+            try {
+              const propRes = await proposalApi.getDemandProposals(d.id);
+              if (propRes.data?.success && Array.isArray(propRes.data.data)) {
+                base.proposals = propRes.data.data.map((p: any) => {
+                  const rawFlightDate = p.flightDate ? new Date(p.flightDate) : new Date();
+                  const formattedFlight = isNaN(rawFlightDate.getTime())
+                    ? String(p.flightDate)
+                    : rawFlightDate.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+                  return {
+                    id: p.id,
+                    travelerName: p.traveler?.name || "Traveler",
+                    travelerAvatar: p.traveler?.avatar || undefined,
+                    rating: p.traveler?.rating || 5.0,
+                    flightDate: formattedFlight,
+                    flightTime: p.flightTime || "14:30",
+                    arrivalDate: p.arrivalDate ? new Date(p.arrivalDate).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) : formattedFlight,
+                    arrivalTime: p.arrivalTime || "18:45",
+                    proposedPrice: p.proposedPrice || "Free",
+                    status: p.status.toLowerCase() as any,
+                    paymentStatus: p.paymentStatus,
+                    payoutStatus: p.payoutStatus,
+                    rawProposal: p,
+                    createdAt: new Date(p.createdAt).toLocaleDateString(),
+                  };
+                });
+              }
+            } catch (err) {}
+            return base;
+          })
+        );
         setRequestsList(mapped);
       }
     } catch (e) {
@@ -58,25 +101,96 @@ export default function RequestsScreen() {
     }
   }, []);
 
+  const fetchMyProposals = useCallback(async () => {
+    try {
+      const res = await proposalApi.getMyProposals();
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        const mapped: MyApplicationItem[] = res.data.data.map((p: any) => {
+          const rawDate = p.flightDate ? new Date(p.flightDate) : new Date(p.createdAt);
+          const formattedDate = isNaN(rawDate.getTime())
+            ? String(p.flightDate || "Flexible")
+            : rawDate.toLocaleDateString("en-US", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              });
+
+          return {
+            id: p.id,
+            targetPostId: p.demandId,
+            type: "delivery_proposal",
+            targetTitle: `${p.demand?.from || "Origin"} → ${p.demand?.to || "Destination"}`,
+            creatorName: p.demand?.user?.name || "Sender",
+            creatorAvatar: p.demand?.user?.avatar || undefined,
+            creatorRating: p.demand?.user?.rating || 4.9,
+            myRequestedWeight: `${p.demand?.weightKg || 1} kg`,
+            weight: `${p.demand?.weightKg || 1} kg`,
+            myProposedPrice: p.proposedPrice || "Free",
+            reward: p.demand?.reward ? `${p.demand?.currency || "QAR"} ${p.demand?.reward}` : "Reward",
+            status: p.status.toLowerCase() as any,
+            paymentStatus: p.paymentStatus,
+            targetDate: formattedDate,
+            from: p.demand?.from,
+            to: p.demand?.to,
+            deliveryMethod: p.demand?.deliveryMethod || null,
+            deliveryContactName: p.demand?.deliveryContactName || null,
+            deliveryContactPhone: p.demand?.deliveryContactPhone || null,
+            deliveryFee: p.demand?.deliveryFee !== undefined ? p.demand?.deliveryFee : null,
+            deliveryPaymentMethod: p.demand?.deliveryPaymentMethod || null,
+            deliveryAddress: p.demand?.deliveryAddress || null,
+            submittedAt: new Date(p.createdAt).toLocaleDateString(),
+            rawProposal: p,
+          };
+        });
+        setApplicationsList(mapped);
+      }
+    } catch (e) {
+      console.error("Error fetching my proposals:", e);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      fetchMyDemands();
-    }, [fetchMyDemands])
+      setLoading(true);
+      Promise.all([fetchMyDemands(), fetchMyProposals()]).finally(() => {
+        setLoading(false);
+      });
+    }, [fetchMyDemands, fetchMyProposals])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchMyDemands();
+    Promise.all([fetchMyDemands(), fetchMyProposals()]).finally(() => {
+      setRefreshing(false);
+    });
   };
 
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [expandedDemandIds, setExpandedDemandIds] = useState<string[]>([]);
 
-  // Applications list for Demands (Proposals user submitted on package requests)
-  const [applicationsList, setApplicationsList] = useState<MyApplicationItem[]>(() =>
-    MOCK_MY_APPLICATIONS.filter((a) => a.type === "delivery_proposal")
-  );
-  const [appFilterTab, setAppFilterTab] = useState<AppFilterTab>("all");
+  useEffect(() => {
+    if (params.mode === "my_applications" || params.mode === "applications") {
+      setCurrentMode("my_applications");
+    } else if (params.mode === "my_demands" || params.mode === "demands") {
+      setCurrentMode("my_demands");
+    }
+
+    if (params.targetId || params.expandId) {
+      const target = params.targetId || params.expandId;
+      const matchedDemand = requestsList.find(
+        (r) => String(r.id) === String(target) || r.proposals?.some((p) => String(p.id) === String(target))
+      );
+      if (matchedDemand) {
+        setExpandedDemandIds((prev) =>
+          prev.includes(String(matchedDemand.id)) ? prev : [...prev, String(matchedDemand.id)]
+        );
+      } else if (target) {
+        setExpandedDemandIds((prev) =>
+          prev.includes(String(target)) ? prev : [...prev, String(target)]
+        );
+      }
+    }
+  }, [params.mode, params.targetId, params.expandId, params.t, requestsList]);
 
   // Edit Modal State
   const [editingDemand, setEditingDemand] = useState<MyPackageRequest | null>(null);
@@ -90,42 +204,51 @@ export default function RequestsScreen() {
     );
   };
 
-  const handleAcceptProposal = (
-    demandId: string | number,
-    proposalId: string,
-    travelerName: string
-  ) => {
-    Alert.alert(
-      t("acceptProposalTitle", language),
-      t("acceptProposalMessage", language, { name: travelerName }),
-      [
-        { text: t("cancelBtn", language), style: "cancel" },
-        {
-          text: t("acceptBtn", language),
-          onPress: () => {
-            setRequestsList((prevList) =>
-              prevList.map((req) => {
-                if (String(req.id) === String(demandId)) {
-                  const updatedProposals = (req.proposals || []).map((p) =>
-                    p.id === proposalId
-                      ? { ...p, status: "accepted" as const }
-                      : { ...p, status: "rejected" as const }
-                  );
-                  return {
-                    ...req,
-                    status: "accepted" as const,
-                    proposals: updatedProposals,
-                  };
-                }
-                return req;
-              })
-            );
-          },
+  /**
+   * SENDER: Open Escrow Payment modal to Accept Traveler Proposal
+   */
+  const handleOpenAcceptProposal = (demand: MyPackageRequest, proposal: TravelerProposal) => {
+    const rawReward = typeof demand.reward === "string"
+      ? parseFloat(demand.reward.replace(/[^0-9.]/g, "")) || 50
+      : (demand.reward || 50);
+
+    const currencyMatch = typeof demand.reward === "string" ? demand.reward.match(/[A-Z]{3}/) : null;
+    const detectedCurrency = currencyMatch ? currencyMatch[0] : "QAR";
+
+    setSelectedDemandForPayment({
+      ...demand,
+      reward: rawReward,
+      currency: detectedCurrency,
+      deliveryFee: demand.deliveryFee || 0,
+    });
+
+    setSelectedProposalForPayment(
+      proposal.rawProposal || {
+        id: proposal.id,
+        demandId: String(demand.id),
+        travelerId: (proposal as any).travelerId || "traveler",
+        flightDate: proposal.flightDate,
+        flightTime: proposal.flightTime || "14:30",
+        arrivalDate: proposal.arrivalDate || proposal.flightDate,
+        arrivalTime: proposal.arrivalTime || "18:45",
+        proposedPrice: proposal.proposedPrice || "Free",
+        status: "PENDING",
+        createdAt: proposal.createdAt,
+        traveler: {
+          id: (proposal as any).travelerId || "traveler",
+          name: proposal.travelerName,
+          avatar: proposal.travelerAvatar,
+          rating: proposal.rating,
         },
-      ]
+      }
     );
+
+    setPaymentModalVisible(true);
   };
 
+  /**
+   * SENDER: Reject Proposal
+   */
   const handleRejectProposal = (
     demandId: string | number,
     proposalId: string,
@@ -139,21 +262,165 @@ export default function RequestsScreen() {
         {
           text: t("declineBtn", language),
           style: "destructive",
-          onPress: () => {
-            setRequestsList((prevList) =>
-              prevList.map((req) => {
-                if (String(req.id) === String(demandId)) {
-                  const updatedProposals = (req.proposals || []).map((p) =>
-                    p.id === proposalId ? { ...p, status: "rejected" as const } : p
-                  );
-                  return {
-                    ...req,
-                    proposals: updatedProposals,
-                  };
-                }
-                return req;
-              })
-            );
+          onPress: async () => {
+            try {
+              const res = await proposalApi.rejectProposal(proposalId);
+              if (res.data?.success) {
+                fetchMyDemands();
+              } else {
+                Alert.alert("Error", res.data?.message || "Failed to reject proposal");
+              }
+            } catch (err: any) {
+              const errMsg = err?.response?.data?.message || err?.message || "Failed to reject proposal";
+              Alert.alert("Error", errMsg);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /**
+   * SENDER: Confirm Delivery & Release Escrow Funds to Traveler
+   */
+  const handleCompleteProposal = (proposalId: string) => {
+    Alert.alert(
+      language === "ar" ? "تأكيد استلام الشحنة" : "Confirmer la réception du colis",
+      language === "ar"
+        ? "هل قمت باستلام الشحنة بنجاح؟ سيتم تحرير المبلغ المالي للمسافر فوراً من حساب الضمان."
+        : "Avez-vous bien reçu votre colis ? Les fonds retenus sous séquestre seront immédiatement libérés au voyageur.",
+      [
+        { text: t("cancelBtn", language) || "Annuler", style: "cancel" },
+        {
+          text: language === "ar" ? "تأكيد وتحرير المبلغ 💰" : "Confirmer & Libérer 💰",
+          onPress: async () => {
+            try {
+              const res = await proposalApi.completeProposal(proposalId);
+              if (res.data?.success) {
+                fetchMyDemands();
+                Alert.alert(
+                  "Succès 🎉",
+                  language === "ar"
+                    ? "تم تأكيد الاستلام وتحرير المبلغ للمسافر. شكراً لثقتكم بـ SafarLink!"
+                    : "Livraison confirmée et paiement libéré au voyageur. Merci d'avoir utilisé SafarLink !"
+                );
+              } else {
+                Alert.alert("Erreur", res.data?.message || "Échec de la confirmation");
+              }
+            } catch (err: any) {
+              const msg = err?.response?.data?.message || err?.message || "Échec de la confirmation";
+              Alert.alert("Erreur", msg);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /**
+   * SENDER: Open Dispute (Freeze funds)
+   */
+  const handleDisputeProposal = (proposalId: string) => {
+    Alert.alert(
+      language === "ar" ? "فتح نزاع / مشكلة" : "Signaler un litige",
+      language === "ar"
+        ? "هل تواجه مشكلة في هذه الشحنة؟ سيتم تجميد الأموال في حساب الضمان ومراجعة الطلب من قبل فريق الدعم."
+        : "Rencontrez-vous un problème avec cette livraison ? Les fonds resteront bloqués sous séquestre pour examen par l'administration.",
+      [
+        { text: t("cancelBtn", language) || "Annuler", style: "cancel" },
+        {
+          text: language === "ar" ? "فتح نزاع ⚠️" : "Ouvrir un litige ⚠️",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const res = await proposalApi.disputeProposal(proposalId, {
+                reason: "Signaled by sender in requests screen",
+              });
+              if (res.data?.success) {
+                fetchMyDemands();
+                Alert.alert(
+                  language === "ar" ? "تم تسجيل النزاع ⚠️" : "Litige ouvert ⚠️",
+                  language === "ar"
+                    ? "الأموال مجمدة تحت الضمان. سيقوم فريق SafarLink بالتواصل معك."
+                    : "Les fonds sont gelés sous séquestre. Le support SafarLink examine la situation."
+                );
+              } else {
+                Alert.alert("Erreur", res.data?.message || "Échec de l'ouverture du litige");
+              }
+            } catch (err: any) {
+              const msg = err?.response?.data?.message || err?.message || "Échec de l'ouverture du litige";
+              Alert.alert("Erreur", msg);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /**
+   * SENDER: Cancel Accepted Proposal & Refund
+   */
+  const handleCancelProposal = (proposalId: string) => {
+    Alert.alert(
+      language === "ar" ? "إلغاء الطلب واسترداد المبلغ" : "Annuler & Rembourser",
+      language === "ar"
+        ? "هل أنت متأكد من إلغاء هذا الطلب؟ إذا تم حجز أموال تحت الضمان، فسيتم إرجاعها إلى حسابك بالكامل."
+        : "Êtes-vous sûr de vouloir annuler ? Si un paiement est sous séquestre, il vous sera intégralement remboursé.",
+      [
+        { text: t("cancelBtn", language) || "Non", style: "cancel" },
+        {
+          text: language === "ar" ? "نعم، إلغاء واسترداد" : "Oui, annuler & rembourser",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const res = await proposalApi.cancelProposal(proposalId);
+              if (res.data?.success) {
+                fetchMyDemands();
+                Alert.alert("Succès", "Proposition annulée et fonds remboursés.");
+              } else {
+                Alert.alert("Erreur", res.data?.message || "Échec de l'annulation");
+              }
+            } catch (err: any) {
+              const msg = err?.response?.data?.message || err?.message || "Échec de l'annulation";
+              Alert.alert("Erreur", msg);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /**
+   * TRAVELER: Mark Package as Delivered (Direct hand-off, NO in-transit!)
+   */
+  const handleMarkDelivered = (proposalId: string) => {
+    Alert.alert(
+      language === "ar" ? "تأكيد تسليم الشحنة" : "Confirmer la livraison du colis",
+      language === "ar"
+        ? "هل قمت بتسليم الشحنة إلى المستلم بنجاح؟ سيتم إشعار المرسل لتأكيد الاستلام وتحرير أرباحك فوراً."
+        : "Avez-vous bien remis le colis au destinataire ? L'expéditeur sera notifié pour valider la réception et libérer vos fonds sous séquestre.",
+      [
+        { text: t("cancelBtn", language) || "Annuler", style: "cancel" },
+        {
+          text: language === "ar" ? "تم التسليم 📦" : "Marquer comme livré 📦",
+          onPress: async () => {
+            try {
+              const res = await proposalApi.markDelivered(proposalId);
+              if (res.data?.success) {
+                fetchMyProposals();
+                Alert.alert(
+                  "Super ! 📦",
+                  language === "ar"
+                    ? "تم تسجيل التسليم بنجاح. سيتم تحرير المبلغ فور تأكيد المستلم."
+                    : "Colis marqué comme livré ! L'expéditeur a été notifié pour confirmer et libérer votre paiement."
+                );
+              } else {
+                Alert.alert("Erreur", res.data?.message || "Échec de l'opération");
+              }
+            } catch (err: any) {
+              const msg = err?.response?.data?.message || err?.message || "Échec de l'opération";
+              Alert.alert("Erreur", msg);
+            }
           },
         },
       ]
@@ -191,8 +458,18 @@ export default function RequestsScreen() {
         {
           text: t("withdrawProposalConfirm", language),
           style: "destructive",
-          onPress: () => {
-            setApplicationsList((prev) => prev.filter((a) => a.id !== appId));
+          onPress: async () => {
+            try {
+              const res = await proposalApi.cancelProposal(appId);
+              if (res.data?.success) {
+                fetchMyProposals();
+              } else {
+                Alert.alert("Error", res.data?.message || "Failed to withdraw proposal");
+              }
+            } catch (err: any) {
+              const errMsg = err?.response?.data?.message || err?.message || "Failed to withdraw proposal";
+              Alert.alert("Error", errMsg);
+            }
           },
         },
       ]
@@ -310,8 +587,11 @@ export default function RequestsScreen() {
                   onToggleExpand={toggleExpand}
                   onDelete={handleDeleteDemand}
                   onEdit={handleOpenEdit}
-                  onAcceptProposal={handleAcceptProposal}
+                  onAcceptProposal={handleOpenAcceptProposal}
                   onRejectProposal={handleRejectProposal}
+                  onCompleteProposal={handleCompleteProposal}
+                  onDisputeProposal={handleDisputeProposal}
+                  onCancelProposal={handleCancelProposal}
                   language={language}
                   darkMode={darkMode}
                   primaryColor={primaryColor}
@@ -333,6 +613,7 @@ export default function RequestsScreen() {
                 key={app.id}
                 app={app}
                 onRevoke={handleRevokeApplication}
+                onMarkDelivered={handleMarkDelivered}
                 language={language}
                 darkMode={darkMode}
                 primaryColor={primaryColor}
@@ -365,6 +646,28 @@ export default function RequestsScreen() {
         language={language}
         darkMode={darkMode}
         primaryColor={primaryColor}
+      />
+
+      {/* ── ESCROW PAYMENT MODAL FOR ACCEPTING PROPOSALS ── */}
+      <AcceptProposalPaymentModal
+        visible={paymentModalVisible}
+        demand={selectedDemandForPayment}
+        proposal={selectedProposalForPayment}
+        onClose={() => {
+          setPaymentModalVisible(false);
+          setSelectedProposalForPayment(null);
+          setSelectedDemandForPayment(null);
+        }}
+        onSuccess={(_updated) => {
+          setPaymentModalVisible(false);
+          setSelectedProposalForPayment(null);
+          setSelectedDemandForPayment(null);
+          fetchMyDemands();
+          Alert.alert(
+            "Proposition Acceptée 🔒",
+            "Le paiement a été bloqué en toute sécurité sous séquestre SafarLink. Le voyageur a été notifié."
+          );
+        }}
       />
     </SafeAreaView>
   );

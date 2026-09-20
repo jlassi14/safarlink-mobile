@@ -20,14 +20,15 @@ export interface BottomSheetModalProps {
   contentStyle?: StyleProp<ViewStyle>;
   animationType?: "slide" | "fade" | "none";
   centered?: boolean;
+  fullHeight?: boolean;
 }
 
 /**
  * Global BottomSheetModal wrapper.
  * Pure native Modal architecture that works 100% reliably on Android, iOS, and Expo:
  * - Direct Modal mounting with visible={visible}
- * - Outer Pressable overlay for background tap dismissal
- * - Inner Pressable card with stopPropagation to ensure all content clicks work
+ * - Backdrop Pressable (absoluteFill) behind card for backdrop tap dismissal
+ * - Inner View card (NOT Pressable) so child ScrollViews receive 100% of touch & scroll events
  */
 export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
   visible,
@@ -36,6 +37,7 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
   contentStyle,
   animationType = "slide",
   centered = false,
+  fullHeight = false,
 }) => {
   const darkMode = useAppStore((state) => state.darkMode);
   const insets = useSafeAreaInsets();
@@ -53,28 +55,34 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex1}
       >
-        <Pressable
+        <View
           style={[
             styles.overlay,
             centered ? styles.centeredOverlay : styles.bottomOverlay,
           ]}
-          onPress={() => {
-            Keyboard.dismiss();
-            onClose();
-          }}
         >
+          {/* Absolute backdrop to catch outside taps */}
           <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              Keyboard.dismiss();
+              onClose();
+            }}
+          />
+
+          {/* Modal Card - pure View container so ScrollViews inside are fully scrollable */}
+          <View
             style={[
               centered ? styles.centeredCard : styles.bottomCard,
+              fullHeight && styles.fullHeightCard,
               darkMode && styles.cardDark,
-              { paddingBottom: Math.max(insets.bottom, 20) + 8 },
+              { paddingBottom: Math.max(insets.bottom, 16) },
               contentStyle,
             ]}
-            onPress={(e) => e.stopPropagation()}
           >
             {children}
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -102,8 +110,12 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 16,
-    maxHeight: "88%",
+    maxHeight: "92%",
     width: "100%",
+  },
+  fullHeightCard: {
+    height: "92%",
+    maxHeight: "95%",
   },
   centeredCard: {
     width: "100%",

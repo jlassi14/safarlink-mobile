@@ -31,6 +31,8 @@ export interface User {
   isVerified?: boolean;
   isEmailVerified?: boolean;
   isPhoneVerified?: boolean;
+  payoutEmail?: string | null;
+  payoutMethod?: string | null;
   pendingEditDemand?: PendingEditDemand | null;
   lastEmailChangeDate?: string;
   lastPhoneChangeDate?: string;
@@ -54,6 +56,10 @@ interface AppState {
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
 
+  // Notifications
+  unreadNotificationCount: number;
+  setUnreadNotificationCount: (count: number) => void;
+
   // Hydration state
   hasHydrated: boolean;
   setHasHydrated: (state: boolean) => void;
@@ -68,6 +74,7 @@ export const useAppStore = create<AppState>()(
       isAuthenticated: false,
       darkMode: false,
       hasHydrated: false,
+      unreadNotificationCount: 0,
 
       setLanguage: (lang) => set({ language: lang }),
       setTheme: (theme) => set({ theme }),
@@ -82,6 +89,7 @@ export const useAppStore = create<AppState>()(
         }),
       logout: () => set({ user: null, isAuthenticated: false }),
       setDarkMode: (dark) => set({ darkMode: dark }),
+      setUnreadNotificationCount: (count) => set({ unreadNotificationCount: count }),
       setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
     }),
     {

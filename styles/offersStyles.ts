@@ -118,6 +118,18 @@ export const offersStyles = StyleSheet.create({
     maxWidth: 260,
     lineHeight: 18,
   },
+  loaderContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 350,
+  },
+  loaderText: {
+    fontSize: 13,
+    color: "#64748B",
+    fontWeight: "600",
+    marginTop: 14,
+  },
 });
 
 export default offersStyles;

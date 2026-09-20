@@ -1,15 +1,32 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { View, StyleSheet, Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Home, Tag, PlusCircle, Package, User, Bell } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
+import { notificationApi } from "@/lib/api";
 
 export default function TabsLayout() {
   const language = useAppStore((state) => state.language);
   const darkMode = useAppStore((state) => state.darkMode);
+  const isAuthenticated = useAppStore((state) => state.isAuthenticated);
+  const unreadNotificationCount = useAppStore((state) => state.unreadNotificationCount);
+  const setUnreadNotificationCount = useAppStore((state) => state.setUnreadNotificationCount);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      notificationApi
+        .getUnreadCount()
+        .then((res) => {
+          if (res?.data?.success && typeof res.data.data?.unreadCount === "number") {
+            setUnreadNotificationCount(res.data.data.unreadCount);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isAuthenticated, setUnreadNotificationCount]);
 
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 8);
 
@@ -75,9 +92,11 @@ export default function TabsLayout() {
         options={{
           title: t("notifications", language),
           tabBarIcon: ({ color, size }) => (
-            <View>
+            <View style={{ position: "relative" }}>
               <Bell size={size || 22} color={color} />
-              <View style={styles.tabUnreadBadgeDot} />
+              {unreadNotificationCount > 0 && (
+                <View style={styles.tabUnreadBadgeDot} />
+              )}
             </View>
           ),
         }}

@@ -15,6 +15,7 @@ interface CreatePostConfirmModalProps {
   weightText: string;
   priceOrRewardText: string;
   descriptionText?: string;
+  deliveryMethodText?: string;
   loading: boolean;
   onConfirm: () => void;
   onClose: () => void;
@@ -29,6 +30,7 @@ export const CreatePostConfirmModal: React.FC<CreatePostConfirmModalProps> = ({
   weightText,
   priceOrRewardText,
   descriptionText,
+  deliveryMethodText,
   loading,
   onConfirm,
   onClose,
@@ -96,6 +98,15 @@ export const CreatePostConfirmModal: React.FC<CreatePostConfirmModalProps> = ({
                 {priceOrRewardText}
               </Text>
             </View>
+
+            {deliveryMethodText ? (
+              <View style={styles.row}>
+                <Text style={styles.label}>🇹🇳 {language === "ar" ? "طريقة التوصيل" : language === "fr" ? "Livraison TN" : "TN Delivery"}:</Text>
+                <Text style={[styles.val, { color: "#2563EB", fontWeight: "700" }]}>
+                  {deliveryMethodText}
+                </Text>
+              </View>
+            ) : null}
 
             {descriptionText ? (
               <View style={[styles.row, { alignItems: "flex-start" }]}>

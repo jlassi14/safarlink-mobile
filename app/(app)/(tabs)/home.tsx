@@ -18,7 +18,10 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
-import { offerApi } from "@/lib/api";
+import { offerApi, bookingApi, demandApi, proposalApi } from "@/lib/api";
+import * as WebBrowser from "expo-web-browser";
+
+WebBrowser.maybeCompleteAuthSession();
 import {
   MapPin,
   Clock,
@@ -49,6 +52,7 @@ import DemandCard from "@/components/DemandCard";
 import AdsCarousel from "@/components/AdsCarousel";
 import CompactAdCard from "@/components/CompactAdCard";
 import BottomMiniAdsSection from "@/components/BottomMiniAdsSection";
+import TunisiaDeliverySection from "@/components/create/TunisiaDeliverySection";
 import {
   REAL_MOCK_OFFERS,
   MOCK_BASE_OFFERS,
@@ -61,6 +65,25 @@ import {
   HomeDemandItem,
 } from "@/lib/constants";
 import { colors } from "@/lib/theme";
+import { TunisiaDeliveryMethod, TunisiaPaymentMethod } from "@/lib/api";
+
+const isTunisiaLocation = (loc?: string | null): boolean => {
+  if (!loc) return false;
+  const l = loc.toLowerCase();
+  return (
+    l.includes("tunisia") ||
+    l.includes("tunisie") ||
+    l.includes("tunis") ||
+    l.includes("monastir") ||
+    l.includes("sfax") ||
+    l.includes("djerba") ||
+    l.includes("تونس") ||
+    l.includes("المنستير") ||
+    l.includes("صفاقس") ||
+    l.includes("جربة") ||
+    l.includes("🇹🇳")
+  );
+};
 
 type PostTypeTab = "offer" | "demand";
 
@@ -171,6 +194,13 @@ export default function HomeScreen() {
   const [bookingWeight, setBookingWeight] = useState("2.5");
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookedOfferIds, setBookedOfferIds] = useState<string[]>([]);
+  const [bookingDeliveryMethod, setBookingDeliveryMethod] = useState<TunisiaDeliveryMethod | null>(null);
+  const [bookingContactName, setBookingContactName] = useState("");
+  const [bookingContactPhone, setBookingContactPhone] = useState("");
+  const [bookingDeliveryFee, setBookingDeliveryFee] = useState("");
+  const [bookingPaymentMethod, setBookingPaymentMethod] = useState<TunisiaPaymentMethod>("CASH");
+  const [bookingDeliveryAddress, setBookingDeliveryAddress] = useState("");
+  const [bookingDeliveryErrors, setBookingDeliveryErrors] = useState<Record<string, string | undefined>>({});
 
   // Proposal Modal State (Demands & Flight Schedule)
   const [selectedDemandForProposal, setSelectedDemandForProposal] = useState<HomeDemandItem | null>(null);
@@ -211,18 +241,27 @@ export default function HomeScreen() {
     setSearchQuery("");
   };
 
-  // ── LIVE OFFERS STATE & FETCHING ──
+  // ── LIVE OFFERS & DEMANDS STATE & FETCHING ──
   const [liveOffers, setLiveOffers] = useState<HomeOfferItem[]>([]);
+  const [liveDemands, setLiveDemands] = useState<HomeDemandItem[]>([]);
 
-  const fetchLiveOffers = useCallback(async () => {
+  const fetchLiveData = useCallback(async () => {
     try {
-      const res = await offerApi.getOffers({
-        from: selectedDepart || undefined,
-        to: selectedDestination || undefined,
-      });
-      if (res.data?.success && res.data?.data && Array.isArray(res.data.data.offers)) {
-        const mapped: HomeOfferItem[] = res.data.data.offers.map((o: any) => ({
+      const [offersRes, demandsRes] = await Promise.allSettled([
+        offerApi.getOffers({
+          from: selectedDepart || undefined,
+          to: selectedDestination || undefined,
+        }),
+        demandApi.getDemands({
+          from: selectedDepart || undefined,
+          to: selectedDestination || undefined,
+        }),
+      ]);
+
+      if (offersRes.status === "fulfilled" && offersRes.value.data?.success && Array.isArray(offersRes.value.data?.data?.offers)) {
+        const mapped: HomeOfferItem[] = offersRes.value.data.data.offers.map((o: any) => ({
           id: o.id,
+          userId: o.userId,
           user: o.user?.name || "Traveler",
           from: o.from,
           to: o.to,
@@ -230,73 +269,51 @@ export default function HomeScreen() {
           departureTime: o.departureTime,
           destinationDate: o.destinationDate,
           destinationTime: o.destinationTime,
-          weight: `${o.remainingKg.toFixed(1)} kg available`,
-          reward: `${o.currency} ${o.pricePerKg} / kg`,
+          weight: `${Number(o.remainingKg ?? o.totalKg).toFixed(1)} kg available`,
+          reward: `${o.currency || "QAR"} ${o.pricePerKg} / kg`,
           date: o.departureDate,
           rating: o.user?.rating || 5.0,
           avatar: o.user?.avatar || MOCK_DEFAULT_AVATAR,
         }));
         setLiveOffers(mapped);
       }
+
+      if (demandsRes.status === "fulfilled" && demandsRes.value.data?.success && Array.isArray(demandsRes.value.data?.data?.demands)) {
+        const mappedD: HomeDemandItem[] = demandsRes.value.data.data.demands.map((d: any) => ({
+          id: d.id,
+          senderName: d.user?.name || "Sender",
+          senderAvatar: d.user?.avatar || MOCK_DEFAULT_AVATAR,
+          from: d.from,
+          to: d.to,
+          date: d.targetDate ? new Date(d.targetDate).toLocaleDateString() : "Flexible",
+          weight: `${d.weightKg} kg`,
+          weightKg: d.weightKg,
+          reward: `${d.currency || "QAR"} ${d.reward}`,
+          rating: d.user?.rating || 5.0,
+          status: d.status || "pending",
+        }));
+        setLiveDemands(mappedD);
+      }
     } catch (e) {
-      console.error("Error loading home live offers:", e);
+      console.error("Error loading home live data:", e);
     }
   }, [selectedDepart, selectedDestination]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchLiveOffers();
-    }, [fetchLiveOffers])
+      fetchLiveData();
+    }, [fetchLiveData])
   );
 
   // Base list of offers
   const allOffersList: HomeOfferItem[] = useMemo(() => {
-    const list: HomeOfferItem[] = [...liveOffers];
-    // Include base sample mock offers if live list is small
-    REAL_MOCK_OFFERS.forEach((realOffer) => {
-      if (!list.some((o) => o.id === realOffer.id)) {
-        list.push({
-          id: realOffer.id,
-          user: "Traveler",
-          from: realOffer.from,
-          to: realOffer.to,
-          departureDate: realOffer.departureDate || realOffer.flightDate,
-          departureTime: realOffer.departureTime || "14:30",
-          destinationDate: realOffer.destinationDate || realOffer.flightDate,
-          destinationTime: realOffer.destinationTime || "18:45",
-          weight: realOffer.capacity || `${realOffer.totalKg} kg available`,
-          reward: realOffer.pricePerKg,
-          date: realOffer.flightDate,
-          rating: 5.0,
-          avatar: MOCK_DEFAULT_AVATAR,
-        });
-      }
-    });
-    return list;
+    return liveOffers;
   }, [liveOffers]);
 
   // Base list of demands
   const allDemandsList: HomeDemandItem[] = useMemo(() => {
-    const list: HomeDemandItem[] = [...MOCK_BASE_DEMANDS];
-    MOCK_MY_REQUESTS.forEach((req) => {
-      if (!list.some((d) => d.id === String(req.id))) {
-        list.unshift({
-          id: String(req.id),
-          senderName: req.senderName || user?.name || "Sender",
-          senderAvatar: req.senderAvatar || user?.avatar || MOCK_DEFAULT_AVATAR,
-          from: req.from,
-          to: req.to,
-          date: req.date,
-          weight: req.weight || `${req.weightKg || 1} kg`,
-          weightKg: req.weightKg || 1,
-          reward: req.reward,
-          rating: 5.0,
-          status: "pending",
-        });
-      }
-    });
-    return list;
-  }, [user]);
+    return liveDemands;
+  }, [liveDemands]);
 
   // Clean Number Input Helper
   const cleanNumberInput = (txt: string) => {
@@ -358,247 +375,47 @@ export default function HomeScreen() {
     return false;
   };
 
-  // ── FILTERED OFFERS (Strictly Matching Selected Route & Selected Dates) ──
+  // ── FILTERED OFFERS (Real Live Backend Offers) ──
   const filteredOffers = useMemo(() => {
-    if (!isFilterComplete || !dateFrom || !dateTo) return [];
-
-    const dFromMs = dateFrom.getTime();
-    const dToMs = dateTo.getTime();
-    const range = Math.max(0, dToMs - dFromMs);
-
-    const fmt = (d: Date) =>
-      d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-
-    const isQar = selectedDepart.includes("Qatar") || selectedDepart.includes("قطر");
-    const isSar = selectedDepart.includes("Saudi") || selectedDepart.includes("السعودية");
-    const isAed = selectedDepart.includes("UAE") || selectedDepart.includes("الإمارات");
-    const isCad = selectedDepart.includes("Canada") || selectedDepart.includes("كندا");
-    const isEur = selectedDepart.includes("France") || selectedDepart.includes("Euro");
-    const currencyStr = isQar
-      ? "QR 35 / kg"
-      : isSar
-        ? "SAR 35 / kg"
-        : isAed
-          ? "AED 35 / kg"
-          : isCad
-            ? "CAD 18 / kg"
-            : isEur
-              ? "€ 10 / kg"
-              : "QR 35 / kg";
-
-    const customOffers: HomeOfferItem[] = [
-      {
-        id: `dyn_off_1`,
-        user: "Ahmed B.",
-        from: selectedDepart,
-        to: selectedDestination,
-        departureDate: fmt(new Date(dFromMs)),
-        departureTime: "14:30",
-        destinationDate: fmt(new Date(dFromMs)),
-        destinationTime: "18:45",
-        weight: "14.0 kg available",
-        reward: currencyStr,
-        date: fmt(new Date(dFromMs)),
-        rating: 4.9,
-        avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80",
-      },
-      {
-        id: `dyn_off_2`,
-        user: "Fatima K.",
-        from: selectedDepart,
-        to: selectedDestination,
-        departureDate: fmt(new Date(dFromMs + range * 0.2)),
-        departureTime: "09:15",
-        destinationDate: fmt(new Date(dFromMs + range * 0.2)),
-        destinationTime: "13:30",
-        weight: "18.5 kg available",
-        reward: currencyStr,
-        date: fmt(new Date(dFromMs + range * 0.2)),
-        rating: 4.8,
-        avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80",
-      },
-      {
-        id: `dyn_off_3`,
-        user: "Omar S.",
-        from: selectedDepart,
-        to: selectedDestination,
-        departureDate: fmt(new Date(dFromMs + range * 0.4)),
-        departureTime: "07:00",
-        destinationDate: fmt(new Date(dFromMs + range * 0.4)),
-        destinationTime: "11:20",
-        weight: "20.0 kg available",
-        reward: currencyStr,
-        date: fmt(new Date(dFromMs + range * 0.4)),
-        rating: 5.0,
-        avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=120&q=80",
-      },
-      {
-        id: `dyn_off_4`,
-        user: "Sarah B.",
-        from: selectedDepart,
-        to: selectedDestination,
-        departureDate: fmt(new Date(dFromMs + range * 0.6)),
-        departureTime: "16:45",
-        destinationDate: fmt(new Date(dFromMs + range * 0.6)),
-        destinationTime: "20:30",
-        weight: "12.0 kg available",
-        reward: currencyStr,
-        date: fmt(new Date(dFromMs + range * 0.6)),
-        rating: 4.9,
-        avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80",
-      },
-      {
-        id: `dyn_off_5`,
-        user: "Khaled M.",
-        from: selectedDepart,
-        to: selectedDestination,
-        departureDate: fmt(new Date(dFromMs + range * 0.8)),
-        departureTime: "11:00",
-        destinationDate: fmt(new Date(dFromMs + range * 0.8)),
-        destinationTime: "15:15",
-        weight: "15.0 kg available",
-        reward: currencyStr,
-        date: fmt(new Date(dFromMs + range * 0.8)),
-        rating: 4.7,
-        avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80",
-      },
-      {
-        id: `dyn_off_6`,
-        user: "Yassine H.",
-        from: selectedDepart,
-        to: selectedDestination,
-        departureDate: fmt(new Date(dToMs)),
-        departureTime: "22:15",
-        destinationDate: fmt(new Date(dToMs)),
-        destinationTime: "02:30",
-        weight: "10.0 kg available",
-        reward: currencyStr,
-        date: fmt(new Date(dToMs)),
-        rating: 4.9,
-        avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80",
-      },
-    ];
-
+    let list = allOffersList;
+    if (selectedDepart.trim()) {
+      list = list.filter((o) => matchLocation(selectedDepart, o.from));
+    }
+    if (selectedDestination.trim()) {
+      list = list.filter((o) => matchLocation(selectedDestination, o.to));
+    }
     if (searchQuery.trim()) {
       const sq = searchQuery.toLowerCase();
-      return customOffers.filter(
+      list = list.filter(
         (o) =>
           o.from.toLowerCase().includes(sq) ||
           o.to.toLowerCase().includes(sq) ||
           o.user.toLowerCase().includes(sq)
       );
     }
-    return customOffers;
-  }, [isFilterComplete, selectedDepart, selectedDestination, dateFrom, dateTo, searchQuery]);
+    return list;
+  }, [selectedDepart, selectedDestination, searchQuery, allOffersList]);
 
-  // ── FILTERED DEMANDS (Strictly Matching Selected Route & Selected Dates) ──
+  // ── FILTERED DEMANDS (Real Live Backend Demands) ──
   const filteredDemands = useMemo(() => {
-    if (!isFilterComplete || !dateFrom || !dateTo) return [];
-
-    const dFromMs = dateFrom.getTime();
-    const dToMs = dateTo.getTime();
-    const range = Math.max(0, dToMs - dFromMs);
-
-    const fmt = (d: Date) =>
-      d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-
-    const isQar = selectedDepart.includes("Qatar") || selectedDepart.includes("قطر");
-    const isSar = selectedDepart.includes("Saudi") || selectedDepart.includes("السعودية");
-    const isAed = selectedDepart.includes("UAE") || selectedDepart.includes("الإمارات");
-    const rewardPrefix = isQar ? "QR" : isSar ? "SAR" : isAed ? "AED" : "$";
-
-    const customDemands: HomeDemandItem[] = [
-      {
-        id: `dyn_dem_1`,
-        senderName: "Nour E.",
-        senderAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80",
-        from: selectedDepart,
-        to: selectedDestination,
-        date: fmt(new Date(dFromMs)),
-        weight: "3.5 kg",
-        weightKg: 3.5,
-        reward: `${rewardPrefix} 120`,
-        rating: 4.9,
-        status: "pending",
-      },
-      {
-        id: `dyn_dem_2`,
-        senderName: "Sami K.",
-        senderAvatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80",
-        from: selectedDepart,
-        to: selectedDestination,
-        date: fmt(new Date(dFromMs + range * 0.2)),
-        weight: "6.0 kg",
-        weightKg: 6.0,
-        reward: `${rewardPrefix} 200`,
-        rating: 4.8,
-        status: "pending",
-      },
-      {
-        id: `dyn_dem_3`,
-        senderName: "Marc L.",
-        senderAvatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80",
-        from: selectedDepart,
-        to: selectedDestination,
-        date: fmt(new Date(dFromMs + range * 0.4)),
-        weight: "4.5 kg",
-        weightKg: 4.5,
-        reward: `${rewardPrefix} 160`,
-        rating: 5.0,
-        status: "pending",
-      },
-      {
-        id: `dyn_dem_4`,
-        senderName: "Salma K.",
-        senderAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80",
-        from: selectedDepart,
-        to: selectedDestination,
-        date: fmt(new Date(dFromMs + range * 0.6)),
-        weight: "2.0 kg",
-        weightKg: 2.0,
-        reward: `${rewardPrefix} 90`,
-        rating: 4.9,
-        status: "pending",
-      },
-      {
-        id: `dyn_dem_5`,
-        senderName: "Wael G.",
-        senderAvatar: "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=120&q=80",
-        from: selectedDepart,
-        to: selectedDestination,
-        date: fmt(new Date(dFromMs + range * 0.8)),
-        weight: "5.0 kg",
-        weightKg: 5.0,
-        reward: `${rewardPrefix} 175`,
-        rating: 4.7,
-        status: "pending",
-      },
-      {
-        id: `dyn_dem_6`,
-        senderName: "Sarah B.",
-        senderAvatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=120&q=80",
-        from: selectedDepart,
-        to: selectedDestination,
-        date: fmt(new Date(dToMs)),
-        weight: "3.0 kg",
-        weightKg: 3.0,
-        reward: `${rewardPrefix} 130`,
-        rating: 5.0,
-        status: "pending",
-      },
-    ];
-
+    let list = allDemandsList;
+    if (selectedDepart.trim()) {
+      list = list.filter((d) => matchLocation(selectedDepart, d.from));
+    }
+    if (selectedDestination.trim()) {
+      list = list.filter((d) => matchLocation(selectedDestination, d.to));
+    }
     if (searchQuery.trim()) {
       const sq = searchQuery.toLowerCase();
-      return customDemands.filter(
+      list = list.filter(
         (d) =>
           d.from.toLowerCase().includes(sq) ||
           d.to.toLowerCase().includes(sq) ||
           d.senderName.toLowerCase().includes(sq)
       );
     }
-    return customDemands;
-  }, [isFilterComplete, selectedDepart, selectedDestination, dateFrom, dateTo, searchQuery]);
+    return list;
+  }, [selectedDepart, selectedDestination, searchQuery, allDemandsList]);
 
   const isOfferTab = postType === "offer";
   const displayedCount = isOfferTab ? filteredOffers.length : filteredDemands.length;
@@ -1093,7 +910,7 @@ export default function HomeScreen() {
                         </View>
                       </View>
 
-                      {/* Book Action Button (Disabled if already booked) */}
+                      {/* Book Action Button (Disabled if already booked or user's own offer) */}
                       {bookedOfferIds.includes(item.id) ? (
                         <View
                           style={[
@@ -1116,12 +933,41 @@ export default function HomeScreen() {
                                 : "Booked"}
                           </Text>
                         </View>
+                      ) : item.userId && user?.id && item.userId === user.id ? (
+                        <View
+                          style={[
+                            styles.bookBtn,
+                            styles.bookBtnDisabled,
+                            darkMode && styles.bookBtnDisabledDark,
+                          ]}
+                        >
+                          <UserIcon size={13} color={darkMode ? "#9CA3AF" : "#6B7280"} />
+                          <Text
+                            style={[
+                              styles.bookBtnText,
+                              { color: darkMode ? "#9CA3AF" : "#6B7280" },
+                            ]}
+                          >
+                            {language === "ar"
+                              ? "عرضك"
+                              : language === "fr"
+                                ? "Votre offre"
+                                : "Your Offer"}
+                          </Text>
+                        </View>
                       ) : (
                         <TouchableOpacity
                           style={styles.bookBtn}
                           onPress={() => {
                             setSelectedOfferForBooking(item);
                             setBookingWeight("2.5");
+                            setBookingDeliveryMethod(null);
+                            setBookingContactName("");
+                            setBookingContactPhone("");
+                            setBookingDeliveryFee("");
+                            setBookingPaymentMethod("CASH");
+                            setBookingDeliveryAddress("");
+                            setBookingDeliveryErrors({});
                           }}
                           activeOpacity={0.85}
                         >
@@ -1200,8 +1046,11 @@ export default function HomeScreen() {
         <BottomSheetModal
           visible={!!selectedOfferForBooking}
           onClose={() => setSelectedOfferForBooking(null)}
+          fullHeight={true}
+          contentStyle={{ paddingHorizontal: 0, paddingBottom: 0, flex: 1 }}
         >
-          <View style={styles.modalHeader}>
+          {/* Fixed Header */}
+          <View style={[styles.modalHeader, { paddingHorizontal: 20, marginBottom: 8 }]}>
             <Text style={[styles.modalTitle, darkMode && styles.textWhite]}>
               {t("bookOfferAction", language)}
             </Text>
@@ -1209,92 +1058,360 @@ export default function HomeScreen() {
               onPress={() => setSelectedOfferForBooking(null)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <X size={18} color={darkMode ? "#FFFFFF" : "#1F2937"} />
+              <X size={20} color={darkMode ? "#FFFFFF" : "#1F2937"} />
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.modalOfferCard, darkMode && styles.modalOfferCardDark]}>
-            <Text style={[styles.modalOfferRoute, darkMode && styles.textWhite]}>
-              {selectedOfferForBooking.from} ➔ {selectedOfferForBooking.to}
-            </Text>
-            <View style={styles.modalOfferMeta}>
-              <Text style={styles.modalOfferMetaText}>
-                📅 {selectedOfferForBooking.departureDate || selectedOfferForBooking.date}
+          {/* Full-Height Scrollable Content */}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
+            showsVerticalScrollIndicator={true}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled={true}
+          >
+            <View style={[styles.modalOfferCard, darkMode && styles.modalOfferCardDark]}>
+              <Text style={[styles.modalOfferRoute, darkMode && styles.textWhite]}>
+                {selectedOfferForBooking.from} ➔ {selectedOfferForBooking.to}
               </Text>
-              <Text style={styles.modalOfferMetaText}>
-                ⚖️ {selectedOfferForBooking.weight}
-              </Text>
-              <Text style={styles.modalOfferMetaText}>
-                💰 {selectedOfferForBooking.reward}
-              </Text>
-            </View>
-          </View>
-
-          <Text style={[styles.modalInputLabel, darkMode && styles.textWhite]}>
-            {t("desiredWeightLabel", language) || "Desired Weight to Book (kg)"}
-          </Text>
-          <TextInput
-            style={[styles.modalInput, darkMode && styles.modalInputDark]}
-            value={bookingWeight}
-            onChangeText={(v) => setBookingWeight(cleanNumberInput(v))}
-            placeholder="e.g. 2.5"
-            placeholderTextColor="#9CA3AF"
-            keyboardType="decimal-pad"
-          />
-
-          {(() => {
-            const { currency, rate } = getOfferPriceDetails(selectedOfferForBooking);
-            const w = parseFloat(bookingWeight) || 0;
-            const total = (w * rate).toFixed(2);
-
-            return (
-              <View style={[styles.priceSummaryBox, darkMode && styles.priceSummaryBoxDark]}>
-                <Text style={[styles.priceSummaryLabel, darkMode && styles.textMutedDark]}>
-                  {t("estimatedTotal", language) || "Estimated Total Cost:"}
+              <View style={styles.modalOfferMeta}>
+                <Text style={styles.modalOfferMetaText}>
+                  📅 {selectedOfferForBooking.departureDate || selectedOfferForBooking.date}
                 </Text>
-                <Text style={styles.priceSummaryValue}>
-                  {currency} {total}
+                <Text style={styles.modalOfferMetaText}>
+                  ⚖️ {selectedOfferForBooking.weight}
+                </Text>
+                <Text style={styles.modalOfferMetaText}>
+                  💰 {selectedOfferForBooking.reward}
                 </Text>
               </View>
-            );
-          })()}
+            </View>
 
-          <TouchableOpacity
-            style={[styles.modalSubmitBtn, bookingLoading && { opacity: 0.6 }]}
-            onPress={() => {
-              const maxCap = getAvailableCapacityKg(selectedOfferForBooking);
-              const w = parseFloat(bookingWeight) || 0;
-              if (w <= 0) {
-                Alert.alert(language === "ar" ? "خطأ" : language === "fr" ? "Erreur" : "Error", "Please enter a valid booking weight.");
-                return;
-              }
-              if (w > maxCap) {
-                Alert.alert(
-                  t("capacityExceededTitle", language) || "Capacity Exceeded",
-                  `Only ${maxCap.toFixed(1)} kg available on this flight.`
-                );
-                return;
-              }
-              setBookingLoading(true);
-              const offerId = selectedOfferForBooking.id;
-              setTimeout(() => {
-                setBookedOfferIds((prev) => [...prev, offerId]);
-                setBookingLoading(false);
-                setSelectedOfferForBooking(null);
-                Alert.alert(
-                  t("bookingSuccessTitle", language) || "Booking Request Sent!",
-                  t("bookingSuccessMessage", language) || "The traveler has received your request and will confirm shortly."
-                );
-              }, 400);
-            }}
-            disabled={bookingLoading}
-            activeOpacity={0.85}
-          >
-            <CheckCircle2 size={16} color="#FFFFFF" />
-            <Text style={styles.modalSubmitBtnText}>
-              {t("confirmBookingButton", language) || "Confirm & Send Booking Request"}
+            <Text style={[styles.modalInputLabel, darkMode && styles.textWhite]}>
+              {t("desiredWeightLabel", language) || "Desired Weight to Book (kg)"}
             </Text>
-          </TouchableOpacity>
+            <TextInput
+              style={[styles.modalInput, darkMode && styles.modalInputDark]}
+              value={bookingWeight}
+              onChangeText={(v) => setBookingWeight(cleanNumberInput(v))}
+              placeholder="e.g. 2.5"
+              placeholderTextColor="#9CA3AF"
+              keyboardType="decimal-pad"
+            />
+
+            {(() => {
+              const { currency, rate } = getOfferPriceDetails(selectedOfferForBooking);
+              const w = parseFloat(bookingWeight) || 0;
+              const total = (w * rate).toFixed(2);
+
+              return (
+                <View style={[styles.priceSummaryBox, darkMode && styles.priceSummaryBoxDark]}>
+                  <Text style={[styles.priceSummaryLabel, darkMode && styles.textMutedDark]}>
+                    {t("estimatedTotal", language) || "Estimated Total Cost:"}
+                  </Text>
+                  <Text style={styles.priceSummaryValue}>
+                    {currency} {total}
+                  </Text>
+                </View>
+              );
+            })()}
+
+            {/* Tunisia Domestic Delivery Section: The sender booking the luggage space chooses delivery for Tunisia */}
+            {selectedOfferForBooking &&
+              (isTunisiaLocation(selectedOfferForBooking.from) ||
+                isTunisiaLocation(selectedOfferForBooking.to)) && (
+                <TunisiaDeliverySection
+                  deliveryMethod={bookingDeliveryMethod}
+                  setDeliveryMethod={(m) => {
+                    setBookingDeliveryMethod(m);
+                    setBookingDeliveryErrors((prev) => ({ ...prev, deliveryMethod: undefined }));
+                  }}
+                  contactName={bookingContactName}
+                  setContactName={(v) => {
+                    setBookingContactName(v);
+                    setBookingDeliveryErrors((prev) => ({ ...prev, deliveryContactName: undefined }));
+                  }}
+                  contactPhone={bookingContactPhone}
+                  setContactPhone={(v) => {
+                    setBookingContactPhone(v);
+                    setBookingDeliveryErrors((prev) => ({ ...prev, deliveryContactPhone: undefined }));
+                  }}
+                  deliveryFee={bookingDeliveryFee}
+                  setDeliveryFee={(v) => {
+                    setBookingDeliveryFee(v);
+                    setBookingDeliveryErrors((prev) => ({ ...prev, deliveryFee: undefined }));
+                  }}
+                  paymentMethod={bookingPaymentMethod}
+                  setPaymentMethod={setBookingPaymentMethod}
+                  deliveryAddress={bookingDeliveryAddress}
+                  setDeliveryAddress={(v) => {
+                    setBookingDeliveryAddress(v);
+                    setBookingDeliveryErrors((prev) => ({ ...prev, deliveryAddress: undefined }));
+                  }}
+                  errors={bookingDeliveryErrors}
+                  clearError={(field) =>
+                    setBookingDeliveryErrors((prev) => ({ ...prev, [field]: undefined }))
+                  }
+                />
+              )}
+          </ScrollView>
+
+          {/* Sticky Bottom Footer - Guaranteed Always Visible & Responsive */}
+          <View
+            style={{
+              paddingHorizontal: 20,
+              paddingTop: 10,
+              paddingBottom: Math.max(insets.bottom, 16),
+              borderTopWidth: 1,
+              borderTopColor: darkMode ? "#334155" : "#F1F5F9",
+              backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+            }}
+          >
+            <TouchableOpacity
+              style={[styles.modalSubmitBtn, bookingLoading && { opacity: 0.6 }]}
+              onPress={async () => {
+                if (
+                  selectedOfferForBooking.userId &&
+                  user?.id &&
+                  selectedOfferForBooking.userId === user.id
+                ) {
+                  Alert.alert(
+                    language === "ar" ? "تنبيه" : language === "fr" ? "Attention" : "Notice",
+                    language === "ar"
+                      ? "لا يمكنك حجز عرض قمت بإنشائه بنفسك."
+                      : language === "fr"
+                        ? "Vous ne pouvez pas réserver votre propre offre."
+                        : "You cannot book an offer that you created yourself."
+                  );
+                  return;
+                }
+
+                const maxCap = getAvailableCapacityKg(selectedOfferForBooking);
+                const w = parseFloat(bookingWeight) || 0;
+                if (w <= 0) {
+                  Alert.alert(
+                    language === "ar" ? "خطأ" : language === "fr" ? "Erreur" : "Error",
+                    "Please enter a valid booking weight."
+                  );
+                  return;
+                }
+                if (w > maxCap) {
+                  Alert.alert(
+                    t("capacityExceededTitle", language) || "Capacity Exceeded",
+                    `Only ${maxCap.toFixed(1)} kg available on this flight.`
+                  );
+                  return;
+                }
+
+                const isTunisiaFlight =
+                  selectedOfferForBooking &&
+                  (isTunisiaLocation(selectedOfferForBooking.from) ||
+                    isTunisiaLocation(selectedOfferForBooking.to));
+
+                if (isTunisiaFlight) {
+                  const bErr: Record<string, string | undefined> = {};
+                  if (!bookingDeliveryMethod) {
+                    bErr.deliveryMethod = t("deliveryMethodRequired", language);
+                  } else if (bookingDeliveryMethod === "FAMILY") {
+                    if (!bookingContactName.trim()) {
+                      bErr.deliveryContactName = t("deliveryContactNameRequired", language);
+                    }
+                    if (!bookingContactPhone.trim()) {
+                      bErr.deliveryContactPhone = t("deliveryContactPhoneRequired", language);
+                    }
+                  } else if (bookingDeliveryMethod === "COURIER") {
+                    if (!bookingDeliveryFee.trim() || parseFloat(bookingDeliveryFee) <= 0) {
+                      bErr.deliveryFee = t("deliveryFeeRequired", language);
+                    }
+                  } else if (bookingDeliveryMethod === "I_FAST_PRO") {
+                    if (!bookingDeliveryAddress.trim()) {
+                      bErr.deliveryAddress = t("deliveryAddressRequired", language);
+                    }
+                  }
+
+                  if (Object.keys(bErr).length > 0) {
+                    setBookingDeliveryErrors(bErr);
+                    Alert.alert(
+                      language === "ar" ? "تنبيه" : language === "fr" ? "Attention" : "Notice",
+                      bErr.deliveryMethod ||
+                        bErr.deliveryContactName ||
+                        bErr.deliveryContactPhone ||
+                        bErr.deliveryFee ||
+                        bErr.deliveryAddress ||
+                        "Please complete delivery details for Tunisia."
+                    );
+                    return;
+                  }
+                }
+
+                setBookingLoading(true);
+                const offerId = selectedOfferForBooking.id;
+
+                try {
+                  const res = await bookingApi.createBooking({
+                    offerId,
+                    weightKg: w,
+                    deliveryMethod: isTunisiaFlight ? bookingDeliveryMethod : null,
+                    deliveryContactName:
+                      isTunisiaFlight && bookingDeliveryMethod === "FAMILY"
+                        ? bookingContactName.trim()
+                        : null,
+                    deliveryContactPhone:
+                      isTunisiaFlight && bookingDeliveryMethod === "FAMILY"
+                        ? bookingContactPhone.trim()
+                        : null,
+                    deliveryFee:
+                      isTunisiaFlight && bookingDeliveryMethod === "COURIER" && bookingDeliveryFee
+                        ? parseFloat(bookingDeliveryFee)
+                        : null,
+                    deliveryPaymentMethod:
+                      isTunisiaFlight &&
+                      (bookingDeliveryMethod === "COURIER" || bookingDeliveryMethod === "I_FAST_PRO")
+                        ? bookingPaymentMethod
+                        : null,
+                    deliveryAddress:
+                      isTunisiaFlight &&
+                      (bookingDeliveryMethod === "I_FAST_PRO" || bookingDeliveryMethod === "COURIER")
+                        ? bookingDeliveryAddress.trim() || null
+                        : null,
+                  });
+
+                  if (res.data?.success && res.data.data) {
+                    const bookingData = res.data.data.booking;
+                    const approvalUrl = res.data.data.approvalUrl;
+                    const bookingId = bookingData?.id;
+
+                    setSelectedOfferForBooking(null);
+
+                    if (approvalUrl) {
+                      // Open PayPal in secure in-app browser
+                      const result = await WebBrowser.openAuthSessionAsync(
+                        approvalUrl,
+                        "safarlink://paypal-return"
+                      );
+
+                      if (result.type === "success") {
+                        try {
+                          const confirmRes = await bookingApi.confirmPayment(bookingId);
+                          if (confirmRes.data?.success) {
+                            setBookedOfferIds((prev) => [...prev, offerId]);
+                            fetchLiveData();
+                            Alert.alert(
+                              language === "ar"
+                                ? "تم تأمين الدفع! 🔒"
+                                : language === "fr"
+                                ? "Paiement sécurisé en Escrow ! 🔒"
+                                : "Escrow Payment Secured! 🔒",
+                              language === "ar"
+                                ? "تم خصم المبلغ وتأمينه في حساب الضمان حتى استلام شحنتك بنجاح."
+                                : language === "fr"
+                                ? "Votre paiement est bloqué en toute sécurité. Les fonds seront libérés dès confirmation de la livraison."
+                                : "Your payment is securely held in escrow. Funds will only be released once you confirm delivery."
+                            );
+                          } else {
+                            fetchLiveData();
+                            Alert.alert(
+                              "Payment Pending",
+                              "Your booking was submitted. Please check your payment status in My Bookings."
+                            );
+                          }
+                        } catch (cErr: any) {
+                          fetchLiveData();
+                          Alert.alert(
+                            "Booking Created",
+                            "Your booking request was recorded. You can complete or check payment under My Bookings."
+                          );
+                        }
+                      } else {
+                        // On Android, if payment completed, the custom tab might dismiss as the deep link opens.
+                        // Check booking status first before blindly cancelling!
+                        try {
+                          const checkRes = await bookingApi.getBooking(bookingId);
+                          const bk = checkRes.data?.data;
+                          if (bk && (bk.paymentStatus === "AUTHORIZED" || bk.paymentStatus === "HELD")) {
+                            setBookedOfferIds((prev) => [...prev, offerId]);
+                            fetchLiveData();
+                            return;
+                          }
+                          // User cancelled without completing payment
+                          await bookingApi.cancelBooking(bookingId);
+                        } catch (cancelErr) {
+                          console.log("Notice: auto-cancelled unpaid booking on PayPal abort:", cancelErr);
+                        }
+                        fetchLiveData();
+
+                        Alert.alert(
+                          language === "ar" ? "تم إلغاء الدفع" : language === "fr" ? "Paiement annulé" : "Payment Cancelled",
+                          language === "ar"
+                            ? "تم إلغاء عملية الدفع عبر PayPal ولم يتم تأكيد الحجز."
+                            : language === "fr"
+                            ? "Vous avez annulé le paiement PayPal. La réservation n'a pas été effectuée."
+                            : "PayPal checkout was cancelled. The booking was not completed."
+                        );
+                      }
+                    } else {
+                      setBookedOfferIds((prev) => [...prev, offerId]);
+                      fetchLiveData();
+                      Alert.alert(
+                        t("bookingSuccessTitle", language) || "Booking Request Sent!",
+                        t("bookingSuccessMessage", language) || "The traveler has received your request and will confirm shortly."
+                      );
+                    }
+                  } else {
+                    const failMsg = res.data?.error || res.data?.message || "Failed to submit booking";
+                    Alert.alert(
+                      language === "ar" ? "خطأ في الحجز" : language === "fr" ? "Erreur de réservation" : "Booking Error",
+                      failMsg
+                    );
+                  }
+                } catch (err: any) {
+                  const rawErr =
+                    err?.response?.data?.error ||
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    "Failed to submit booking request";
+
+                  let friendlyMsg = rawErr;
+                  if (typeof rawErr === "string" && rawErr.includes("cannot book your own offer")) {
+                    friendlyMsg =
+                      language === "ar"
+                        ? "لا يمكنك حجز عرض قمت بنشره بنفسك ⚠️\nلحجز مساحة لأمتعتك، يرجى اختيار رحلة مسافر آخر."
+                        : language === "fr"
+                          ? "Vous ne pouvez pas réserver votre propre offre ⚠️\nVeuillez choisir le vol d'un autre voyageur."
+                          : "You cannot book your own offer ⚠️\nPlease choose another traveler's flight.";
+                  } else if (typeof rawErr === "string" && rawErr.includes("Insufficient baggage space")) {
+                    friendlyMsg =
+                      language === "ar"
+                        ? "الوزن المطلوب يتجاوز الوزن المتاح في هذه الرحلة ⚠️"
+                        : language === "fr"
+                          ? "Le poids demandé dépasse la capacité disponible sur ce vol ⚠️"
+                          : "Insufficient baggage space available on this flight ⚠️";
+                  } else if (typeof rawErr === "string" && rawErr.includes("no longer active")) {
+                    friendlyMsg =
+                      language === "ar"
+                        ? "هذا العرض لم يعد متاحاً ⚠️"
+                        : language === "fr"
+                          ? "Cette offre n'est plus active ⚠️"
+                          : "This offer is no longer active ⚠️";
+                  }
+
+                  Alert.alert(
+                    language === "ar" ? "تنبيه" : language === "fr" ? "Attention" : "Notice",
+                    friendlyMsg
+                  );
+                } finally {
+                  setBookingLoading(false);
+                }
+              }}
+              disabled={bookingLoading}
+              activeOpacity={0.85}
+            >
+              <CheckCircle2 size={16} color="#FFFFFF" />
+              <Text style={styles.modalSubmitBtnText}>
+                {t("confirmBookingButton", language) || "Confirm & Send Booking Request"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </BottomSheetModal>
       )}
 
@@ -1303,8 +1420,11 @@ export default function HomeScreen() {
         <BottomSheetModal
           visible={!!selectedDemandForProposal}
           onClose={() => setSelectedDemandForProposal(null)}
+          fullHeight={true}
+          contentStyle={{ paddingHorizontal: 0, paddingBottom: 0, flex: 1 }}
         >
-          <View style={styles.modalHeader}>
+          {/* Fixed Header */}
+          <View style={[styles.modalHeader, { paddingHorizontal: 20, marginBottom: 8 }]}>
             <Text style={[styles.modalTitle, darkMode && styles.textWhite]}>
               {t("applyAsTraveler", language)}
             </Text>
@@ -1312,167 +1432,168 @@ export default function HomeScreen() {
               onPress={() => setSelectedDemandForProposal(null)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <X size={18} color={darkMode ? "#FFFFFF" : "#1F2937"} />
+              <X size={20} color={darkMode ? "#FFFFFF" : "#1F2937"} />
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.modalOfferCard, darkMode && styles.modalOfferCardDark]}>
-            {/* Route Row: Depart (Left), Arrow (Center), Destination (Right) */}
-            <View style={styles.modalRouteRow}>
-              <Text style={[styles.modalRouteCity, darkMode && styles.textWhite]} numberOfLines={1}>
-                {selectedDemandForProposal.from}
-              </Text>
-              <Text style={styles.modalRouteArrow}>➔</Text>
-              <Text style={[styles.modalRouteCity, styles.textRight, darkMode && styles.textWhite]} numberOfLines={1}>
-                {selectedDemandForProposal.to}
-              </Text>
-            </View>
-
-            <View style={styles.modalOfferMeta}>
-              <Text style={styles.modalOfferMetaText}>
-                {language === "ar"
-                  ? "تاريخ الاستلام: "
-                  : language === "fr"
-                  ? "Réception: "
-                  : "Receive by: "}
-                {selectedDemandForProposal.createdAt || selectedDemandForProposal.date || "Today"}
-              </Text>
-              <Text style={styles.modalOfferMetaText}>
-                {(() => {
-                  const raw = selectedDemandForProposal.weight || "";
-                  const match = raw.match(/(\d+(?:\.\d+)?\s*kg)/i);
-                  if (match) return match[1].toLowerCase();
-                  const numMatch = raw.match(/\d+(?:\.\d+)?/);
-                  if (numMatch) return `${numMatch[0]} kg`;
-                  return raw || "1.0 kg";
-                })()}
-              </Text>
-            </View>
-          </View>
-
-          {/* Flight Departure & Arrival Schedule Form */}
-          <Text style={[styles.proposalFormHeaderTitle, darkMode && styles.textWhite]}>
-            ✈️ {language === "ar" ? "حدد مواعيد طيرانك (المغادرة والوصول) *" : language === "fr" ? "Indiquez les horaires de votre vol *" : "Specify Your Flight Schedule *"}
-          </Text>
-
-          {/* Departure Date & Time Row */}
-          <View style={styles.proposalScheduleRow}>
-            <View style={{ flex: 1.3 }}>
-              <DatePickerInput
-                label={language === "ar" ? "تاريخ المغادرة" : language === "fr" ? "Date de départ" : "Departure Date"}
-                value={proposalDepDate}
-                language={language}
-                mode="future"
-                minDate={new Date()}
-                onChange={(d) => setProposalDepDate(d)}
-                containerStyle={{ marginBottom: 0 }}
-              />
-            </View>
-            <View style={{ flex: 0.9 }}>
-              <TimePickerInput
-                label={language === "ar" ? "ساعة المغادرة" : language === "fr" ? "Heure départ" : "Departure Hour"}
-                value={proposalDepTime}
-                language={language}
-                onChange={(t) => setProposalDepTime(t)}
-                containerStyle={{ marginBottom: 0 }}
-              />
-            </View>
-          </View>
-
-          {/* Arrival Date & Time Row */}
-          <View style={styles.proposalScheduleRow}>
-            <View style={{ flex: 1.3 }}>
-              <DatePickerInput
-                label={language === "ar" ? "تاريخ الوصول" : language === "fr" ? "Date d'arrivée" : "Arrival Date"}
-                value={proposalArrDate}
-                language={language}
-                mode="future"
-                minDate={proposalDepDate || new Date()}
-                onChange={(d) => setProposalArrDate(d)}
-                containerStyle={{ marginBottom: 0 }}
-              />
-            </View>
-            <View style={{ flex: 0.9 }}>
-              <TimePickerInput
-                label={language === "ar" ? "ساعة الوصول" : language === "fr" ? "Heure d'arrivée" : "Arrival Hour"}
-                value={proposalArrTime}
-                language={language}
-                onChange={(t) => setProposalArrTime(t)}
-                containerStyle={{ marginBottom: 0 }}
-              />
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.modalSubmitBtn,
-              { backgroundColor: primaryColor },
-              proposalLoading && { opacity: 0.6 },
-            ]}
-            onPress={() => {
-              setProposalLoading(true);
-              const demId = selectedDemandForProposal.id;
-
-              const formatProposalDate = (d: Date | null, timeStr: string) => {
-                if (!d) return timeStr;
-                const formatted = d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
-                return `${formatted} à ${timeStr}`;
-              };
-
-              const depFormatted = formatProposalDate(proposalDepDate, proposalDepTime);
-              const arrFormatted = formatProposalDate(proposalArrDate, proposalArrTime);
-
-              const createdProposal: TravelerProposal = {
-                id: "prop_" + Date.now(),
-                travelerName: user?.name || "Traveler",
-                travelerAvatar: user?.avatar || MOCK_DEFAULT_AVATAR,
-                rating: 4.9,
-                flightDate: depFormatted,
-                flightTime: proposalDepTime,
-                arrivalDate: arrFormatted,
-                arrivalTime: proposalArrTime,
-                proposedPrice: "Free",
-                status: "pending",
-                createdAt: "Just now",
-              };
-
-              // Attach to target demand in MOCK_MY_REQUESTS
-              const targetReq = MOCK_MY_REQUESTS.find((r) => String(r.id) === String(demId));
-              if (targetReq) {
-                targetReq.proposals = targetReq.proposals || [];
-                targetReq.proposals.unshift(createdProposal);
-              } else {
-                MOCK_MY_REQUESTS.unshift({
-                  id: demId,
-                  from: selectedDemandForProposal.from,
-                  to: selectedDemandForProposal.to,
-                  status: "pending",
-                  date: selectedDemandForProposal.createdAt || selectedDemandForProposal.date || "Today",
-                  reward: selectedDemandForProposal.reward || "",
-                  weight: selectedDemandForProposal.weight || "2.5 kg",
-                  proposals: [createdProposal],
-                });
-              }
-
-              setTimeout(() => {
-                setProposedDemandIds((prev) => [...prev, demId]);
-                setProposalLoading(false);
-                setSelectedDemandForProposal(null);
-                Alert.alert(
-                  t("proposalSentTitle", language) || "Delivery Proposal Sent!",
-                  language === "ar"
-                    ? "تم إرسال عرض التوصيل وتواريخ طيرانك بنجاح! يمكن لمصاحب الطرد رؤية موعد رحلتك في صفحته."
-                    : "Votre offre de livraison avec vos dates et heures de départ/arrivée a été transmise !"
-                );
-              }, 400);
-            }}
-            disabled={proposalLoading}
-            activeOpacity={0.85}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
+            showsVerticalScrollIndicator={true}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled={true}
           >
-            <Text style={styles.modalSubmitBtnText}>
-              {t("sendProposalButton", language) || "Send Delivery Proposal"}
+            <View style={[styles.modalOfferCard, darkMode && styles.modalOfferCardDark]}>
+              {/* Route Row: Depart (Left), Arrow (Center), Destination (Right) */}
+              <View style={styles.modalRouteRow}>
+                <Text style={[styles.modalRouteCity, darkMode && styles.textWhite]} numberOfLines={1}>
+                  {selectedDemandForProposal.from}
+                </Text>
+                <Text style={styles.modalRouteArrow}>➔</Text>
+                <Text style={[styles.modalRouteCity, styles.textRight, darkMode && styles.textWhite]} numberOfLines={1}>
+                  {selectedDemandForProposal.to}
+                </Text>
+              </View>
+
+              <View style={styles.modalOfferMeta}>
+                <Text style={styles.modalOfferMetaText}>
+                  {language === "ar"
+                    ? "تاريخ الاستلام: "
+                    : language === "fr"
+                    ? "Réception: "
+                    : "Receive by: "}
+                  {selectedDemandForProposal.createdAt || selectedDemandForProposal.date || "Today"}
+                </Text>
+                <Text style={styles.modalOfferMetaText}>
+                  {(() => {
+                    const raw = selectedDemandForProposal.weight || "";
+                    const match = raw.match(/(\d+(?:\.\d+)?\s*kg)/i);
+                    if (match) return match[1].toLowerCase();
+                    const numMatch = raw.match(/\d+(?:\.\d+)?/);
+                    if (numMatch) return `${numMatch[0]} kg`;
+                    return raw || "1.0 kg";
+                  })()}
+                </Text>
+              </View>
+            </View>
+
+            {/* Flight Departure & Arrival Schedule Form */}
+            <Text style={[styles.proposalFormHeaderTitle, darkMode && styles.textWhite]}>
+              ✈️ {language === "ar" ? "حدد مواعيد طيرانك (المغادرة والوصول) *" : language === "fr" ? "Indiquez les horaires de votre vol *" : "Specify Your Flight Schedule *"}
             </Text>
-          </TouchableOpacity>
+
+            {/* Departure Date & Time Row */}
+            <View style={styles.proposalScheduleRow}>
+              <View style={{ flex: 1.3 }}>
+                <DatePickerInput
+                  label={language === "ar" ? "تاريخ المغادرة" : language === "fr" ? "Date de départ" : "Departure Date"}
+                  value={proposalDepDate}
+                  language={language}
+                  mode="future"
+                  minDate={new Date()}
+                  onChange={(d) => setProposalDepDate(d)}
+                  containerStyle={{ marginBottom: 0 }}
+                />
+              </View>
+              <View style={{ flex: 0.9 }}>
+                <TimePickerInput
+                  label={language === "ar" ? "ساعة المغادرة" : language === "fr" ? "Heure départ" : "Departure Hour"}
+                  value={proposalDepTime}
+                  language={language}
+                  onChange={(t) => setProposalDepTime(t)}
+                  containerStyle={{ marginBottom: 0 }}
+                />
+              </View>
+            </View>
+
+            {/* Arrival Date & Time Row */}
+            <View style={styles.proposalScheduleRow}>
+              <View style={{ flex: 1.3 }}>
+                <DatePickerInput
+                  label={language === "ar" ? "تاريخ الوصول" : language === "fr" ? "Date d'arrivée" : "Arrival Date"}
+                  value={proposalArrDate}
+                  language={language}
+                  mode="future"
+                  minDate={proposalDepDate || new Date()}
+                  onChange={(d) => setProposalArrDate(d)}
+                  containerStyle={{ marginBottom: 0 }}
+                />
+              </View>
+              <View style={{ flex: 0.9 }}>
+                <TimePickerInput
+                  label={language === "ar" ? "ساعة الوصول" : language === "fr" ? "Heure d'arrivée" : "Arrival Hour"}
+                  value={proposalArrTime}
+                  language={language}
+                  onChange={(t) => setProposalArrTime(t)}
+                  containerStyle={{ marginBottom: 0 }}
+                />
+              </View>
+            </View>
+          </ScrollView>
+
+          {/* Sticky Bottom Footer */}
+          <View
+            style={{
+              paddingHorizontal: 20,
+              paddingTop: 10,
+              paddingBottom: Math.max(insets.bottom, 16),
+              borderTopWidth: 1,
+              borderTopColor: darkMode ? "#334155" : "#F1F5F9",
+              backgroundColor: darkMode ? "#1F2937" : "#FFFFFF",
+            }}
+          >
+            <TouchableOpacity
+              style={[
+                styles.modalSubmitBtn,
+                { backgroundColor: primaryColor },
+                proposalLoading && { opacity: 0.6 },
+              ]}
+              onPress={async () => {
+                setProposalLoading(true);
+                const demId = selectedDemandForProposal.id;
+
+                try {
+                  const res = await proposalApi.createProposal({
+                    demandId: demId,
+                    flightDate: proposalDepDate ? proposalDepDate.toISOString() : new Date().toISOString(),
+                    flightTime: proposalDepTime,
+                    arrivalDate: proposalArrDate ? proposalArrDate.toISOString() : undefined,
+                    arrivalTime: proposalArrTime,
+                    notes: proposalNotes?.trim() || undefined,
+                  });
+
+                  if (res.data?.success) {
+                    setProposedDemandIds((prev) => [...prev, demId]);
+                    setSelectedDemandForProposal(null);
+                    Alert.alert(
+                      t("proposalSentTitle", language) || "Delivery Proposal Sent!",
+                      language === "ar"
+                        ? "تم إرسال عرض التوصيل وتواريخ طيرانك بنجاح! يمكن لصاحب الطرد رؤية موعد رحلتك في صفحته."
+                        : "Votre offre de livraison avec vos dates et heures de départ/arrivée a été transmise !"
+                    );
+                  } else {
+                    const failMsg = res.data?.error || res.data?.message || "Failed to submit proposal";
+                    Alert.alert("Error", failMsg);
+                  }
+                } catch (err: any) {
+                  const errMsg =
+                    err?.response?.data?.error ||
+                    err?.response?.data?.message ||
+                    err?.message ||
+                    "Failed to submit proposal";
+                  Alert.alert("Error", errMsg);
+                } finally {
+                  setProposalLoading(false);
+                }
+              }}
+              disabled={proposalLoading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modalSubmitBtnText}>
+                {t("sendProposalButton", language) || "Send Delivery Proposal"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </BottomSheetModal>
       )}
     </SafeAreaView>

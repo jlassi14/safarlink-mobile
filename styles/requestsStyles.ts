@@ -5,7 +5,7 @@ export const requestsStyles = StyleSheet.create({
   safeAreaDark: { backgroundColor: "#0B1120" },
   header: { paddingHorizontal: 16, paddingBottom: 10, backgroundColor: "#FFFFFF", borderBottomWidth: 1, borderBottomColor: "#F1F5F9" },
   headerDark: { backgroundColor: "#151E2E", borderBottomColor: "#1E293B" },
-  headerTitle: { fontSize: 22, fontWeight: "900", color: "#0F172A", letterSpacing: -0.3 },
+  headerTitle: { fontSize: 20, fontWeight: "900", color: "#0F172A", letterSpacing: -0.3 },
   headerSubtitle: { fontSize: 12, color: "#64748B", marginTop: 2, fontWeight: "500" },
 
   // Mode Segment Switcher
@@ -69,8 +69,10 @@ export const requestsStyles = StyleSheet.create({
   specsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   weightBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8 },
   weightText: { fontSize: 12, fontWeight: "800" },
-  rewardPill: { backgroundColor: "#FEF3C7", paddingHorizontal: 9, paddingVertical: 4.5, borderRadius: 7 },
-  rewardPillText: { fontSize: 12, fontWeight: "800", color: "#D97706" },
+  rewardPill: { backgroundColor: "#F1F5F9", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7 },
+  rewardPillDark: { backgroundColor: "#1E293B" },
+  rewardPillText: { fontSize: 12, fontWeight: "700", color: "#334155" },
+  demandPriceText: { fontSize: 13, fontWeight: "800", color: "#2563EB" },
   editDemandBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#EFF6FF", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: "#BFDBFE" },
   editDemandBtnDark: { backgroundColor: "#1E293B", borderColor: "#3B82F6" },
   editDemandBtnText: { fontSize: 11, fontWeight: "700" },
@@ -80,7 +82,32 @@ export const requestsStyles = StyleSheet.create({
   receptionDateSubtext: { fontSize: 11, color: "#64748B", fontWeight: "500" },
   receptionDateSubtextDark: { color: "#94A3B8" },
 
-  // Proposals Accordion
+  // Proposals Accordion & Banner
+  deliveryOffersBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#EFF6FF",
+    borderColor: "#BFDBFE",
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  deliveryOffersBannerDark: {
+    backgroundColor: "#1E293B",
+    borderColor: "#2563EB40",
+  },
+  deliveryOffersLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  deliveryOffersText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
   proposalsContainer: { marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#F1F5F9" },
   proposalsContainerDark: { borderTopColor: "#1E293B" },
   proposalsClickableHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 6, paddingHorizontal: 4, borderRadius: 8 },

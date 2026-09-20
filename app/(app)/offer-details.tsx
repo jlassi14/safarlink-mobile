@@ -9,6 +9,7 @@ import {
   Alert,
   StyleSheet,
   ActivityIndicator,
+  BackHandler,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -23,11 +24,13 @@ import {
   Plane,
   Package,
   Lock,
+  Trash2,
 } from "lucide-react-native";
 import EditOfferModal from "@/components/offers/EditOfferModal";
 import DemandActionCard from "@/components/offers/DemandActionCard";
-import { REAL_MOCK_OFFERS, OfferItem } from "@/lib/mockData";
-import { offerApi } from "@/lib/api";
+import TunisiaDeliveryDetailsCard from "@/components/TunisiaDeliveryDetailsCard";
+import { REAL_MOCK_OFFERS, OfferItem, MOCK_DEFAULT_AVATAR } from "@/lib/mockData";
+import { offerApi, bookingApi } from "@/lib/api";
 
 type DemandFilter = "all" | "pending" | "accepted" | "rejected";
 
@@ -35,9 +38,29 @@ export default function OfferDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { language, darkMode } = useAppStore();
-  const params = useLocalSearchParams<{ offerId?: string }>();
+  const params = useLocalSearchParams<{ offerId?: string; from?: string }>();
   const offerIdParam = params.offerId;
+  const fromParam = params.from;
   const primaryColor = colors.primary || "#2563EB";
+
+  const handleBack = () => {
+    if (fromParam === "notifications") {
+      router.replace("/(app)/(tabs)/notifications");
+    } else if (fromParam === "home") {
+      router.replace("/(app)/(tabs)/home");
+    } else {
+      router.replace("/(app)/(tabs)/offers");
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleBack();
+      return true;
+    };
+    const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => subscription.remove();
+  }, [fromParam]);
 
   const topPadding = Math.max(insets.top, Platform.OS === "ios" ? 44 : 20) + 4;
 
@@ -59,11 +82,13 @@ export default function OfferDetailsScreen() {
       } else {
         setLoading(true);
         setErrorMsg(null);
-        offerApi
-          .getOfferById(offerIdParam)
-          .then((res) => {
-            if (res.data?.success && res.data.data) {
-              const o = res.data.data;
+        Promise.allSettled([
+          offerApi.getOfferById(offerIdParam),
+          bookingApi.getOfferBookings(offerIdParam),
+        ])
+          .then(([offerResult, bookingsResult]) => {
+            if (offerResult.status === "fulfilled" && offerResult.value.data?.success && offerResult.value.data.data) {
+              const o = offerResult.value.data.data;
               const rawDepDate = o.departureDate ? new Date(o.departureDate) : new Date();
               const formattedDepDate = isNaN(rawDepDate.getTime())
                 ? String(o.departureDate || "")
@@ -85,6 +110,35 @@ export default function OfferDetailsScreen() {
               const totalKgNum = Number(o.totalKg) || 0;
               const remainingKgNum = Number(o.remainingKg ?? o.totalKg) || 0;
 
+              let receivedDemands: any[] = [];
+              if (
+                bookingsResult.status === "fulfilled" &&
+                bookingsResult.value.data?.success &&
+                Array.isArray(bookingsResult.value.data.data)
+              ) {
+                receivedDemands = bookingsResult.value.data.data.map((b: any) => ({
+                  id: b.id,
+                  senderName: b.sender?.name || "Sender",
+                  senderAvatar: b.sender?.avatar || MOCK_DEFAULT_AVATAR,
+                  senderRating: b.sender?.rating || 4.9,
+                  weightKg: b.weightKg,
+                  weight: `${b.weightKg} kg`,
+                  reward: `${b.totalPrice} ${b.currency}`,
+                  status: b.status.toLowerCase(),
+                  paymentStatus: b.paymentStatus,
+                  date: new Date(b.createdAt).toLocaleDateString(),
+                  deliveryMethod: b.deliveryMethod || null,
+                  deliveryContactName: b.deliveryContactName || null,
+                  deliveryContactPhone: b.deliveryContactPhone || null,
+                  deliveryFee: b.deliveryFee !== undefined && b.deliveryFee !== null ? b.deliveryFee : null,
+                  deliveryPaymentMethod: b.deliveryPaymentMethod || null,
+                  deliveryAddress: b.deliveryAddress || null,
+                  deliveryStatus: b.deliveryStatus || null,
+                  senderAction: b.senderAction || null,
+                  travelerAction: b.travelerAction || null,
+                }));
+              }
+
               setOffer({
                 id: o.id,
                 from: o.from,
@@ -95,13 +149,21 @@ export default function OfferDetailsScreen() {
                 destinationDate: formattedDestDate,
                 destinationTime: o.destinationTime || "18:45",
                 totalKg: totalKgNum,
+                remainingKg: remainingKgNum,
                 capacity: `${remainingKgNum.toFixed(1)} kg available`,
                 pricePerKg: `${o.currency || "QAR"} ${o.pricePerKg} / kg`,
                 status: o.status === "ACTIVE" ? "Active" : o.status === "FULL" ? "Fully Booked" : o.status,
-                demands: [],
+                deliveryMethod: o.deliveryMethod || null,
+                deliveryContactName: o.deliveryContactName || null,
+                deliveryContactPhone: o.deliveryContactPhone || null,
+                deliveryFee: o.deliveryFee !== undefined && o.deliveryFee !== null ? o.deliveryFee : null,
+                deliveryPaymentMethod: o.deliveryPaymentMethod || null,
+                deliveryAddress: o.deliveryAddress || null,
+                deliveryStatus: o.deliveryStatus || null,
+                demands: receivedDemands,
               });
             } else {
-              setErrorMsg(res.data?.error || "Offer not found");
+              setErrorMsg("Offer not found");
             }
           })
           .catch((err) => {
@@ -115,15 +177,69 @@ export default function OfferDetailsScreen() {
     }
   }, [offerIdParam]);
 
-  const acceptedSumKg = offer?.demands
-    ? offer.demands
-        .filter((d) => d.status === "accepted")
-        .reduce((sum, d) => sum + (d.weightKg || 0), 0)
-    : 0;
+  const totalKg = Number(offer?.totalKg) || 0;
 
-  const remainingKg = offer ? Math.max(0, offer.totalKg - acceptedSumKg) : 0;
-  const isFullyBooked = remainingKg === 0;
-  const hasAccepted = acceptedSumKg > 0;
+  const bookedFromDemands = (offer?.demands || [])
+    .filter((d) => ["accepted", "in_transit", "delivered", "completed"].includes(d.status))
+    .reduce((sum, d) => sum + (Number(d.weightKg) || 0), 0);
+
+  const remainingKg =
+    typeof offer?.remainingKg === "number" && !isNaN(offer.remainingKg)
+      ? offer.remainingKg
+      : Math.max(0, totalKg - bookedFromDemands);
+
+  const bookedKg = Math.max(0, totalKg - remainingKg);
+  const bookedPercent = totalKg > 0 ? Math.min(100, (bookedKg / totalKg) * 100) : 0;
+  const isFullyBooked = remainingKg <= 0 || (totalKg > 0 && bookedKg >= totalKg);
+  const hasAccepted = bookedKg > 0;
+
+  const handleDeleteOffer = () => {
+    if (!offer) return;
+
+    if (hasAccepted) {
+      Alert.alert(
+        language === "ar" ? "تعذر حذف العرض" : "Impossible de supprimer l'annonce",
+        language === "ar"
+          ? "لا يمكنك حذف هذا العرض لأن هناك حجوزات مؤكدة بالفعل. يرجى إتمامها أو إلغائها أولاً."
+          : "Vous ne pouvez pas supprimer cette annonce car des réservations ont déjà été confirmées."
+      );
+      return;
+    }
+
+    Alert.alert(
+      language === "ar" ? "حذف عرض الرحلة" : "Supprimer l'annonce de vol",
+      language === "ar"
+        ? "هل أنت متأكد من رغبتك في حذف هذا العرض نهائياً؟ سيتم إلغاء أي طلبات معلقة بدون رسوم."
+        : "Êtes-vous sûr de vouloir supprimer cette annonce ? Les éventuelles demandes en attente seront annulées sans frais.",
+      [
+        { text: language === "ar" ? "إلغاء" : "Annuler", style: "cancel" },
+        {
+          text: language === "ar" ? "حذف" : "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (!offer.id.startsWith("off_mock")) {
+                await offerApi.deleteOffer(offer.id);
+              }
+              Alert.alert(
+                language === "ar" ? "تم الحذف" : "Annonce supprimée",
+                language === "ar" ? "تم حذف عرض الرحلة بنجاح." : "Votre annonce de vol a été supprimée avec succès.",
+                [
+                  {
+                    text: "OK",
+                    onPress: () => router.replace("/(app)/(tabs)/offers"),
+                  },
+                ]
+              );
+            } catch (err: any) {
+              const msg = err?.response?.data?.message || err?.message || "Échec de la suppression de l'annonce";
+              Alert.alert(language === "ar" ? "خطأ" : "Erreur", msg);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const filteredDemands = (offer?.demands || []).filter((demand) => {
     if (activeFilter === "pending") return demand.status === "pending";
@@ -133,12 +249,26 @@ export default function OfferDetailsScreen() {
   });
 
   const handleAcceptDemand = (demandId: string, senderName: string) => {
-    const targetDemand = offer.demands.find((d) => d.id === demandId);
-    if (!targetDemand) return;
+    const targetDemand = offer?.demands?.find((d) => d.id === demandId);
+    if (!targetDemand || !offer) return;
 
     const targetWeight = targetDemand.weightKg || 1;
     if (targetWeight > remainingKg) {
       Alert.alert(t("capacityLimitTitle", language), t("capacityLimitMessage", language));
+      return;
+    }
+
+    const isSecured =
+      targetDemand.paymentStatus?.toUpperCase() === "HELD" ||
+      targetDemand.paymentStatus?.toUpperCase() === "AUTHORIZED";
+
+    if (!isSecured) {
+      Alert.alert(
+        language === "ar" ? "الدفع غير مؤمن بعد" : "Escrow Payment Pending",
+        language === "ar"
+          ? "لم يقم المرسل بإتمام تفويض الدفع عبر PayPal بعد. لا يمكنك قبول الطلب حتى تصبح العملية مؤمنة."
+          : "The sender has not pre-authorized payment yet. You can only accept once payment is secured."
+      );
       return;
     }
 
@@ -152,18 +282,34 @@ export default function OfferDetailsScreen() {
       {
         text: t("acceptDemandConfirmTitle", language),
         style: "default",
-        onPress: () => {
-          const newAcceptedSum = acceptedSumKg + targetWeight;
-          const newRemaining = Math.max(0, offer.totalKg - newAcceptedSum);
+        onPress: async () => {
+          try {
+            const res = await bookingApi.acceptBooking(demandId);
+            if (res.data?.success) {
+              const newAcceptedSum = acceptedSumKg + targetWeight;
+              const newRemaining = Math.max(0, offer.totalKg - newAcceptedSum);
 
-          setOffer((prev) => ({
-            ...prev,
-            status: newRemaining === 0 ? "Fully Booked" : "Active",
-            capacity: `${newRemaining.toFixed(1)} kg available`,
-            demands: prev.demands.map((d) =>
-              d.id === demandId ? { ...d, status: "accepted" as const } : d
-            ),
-          }));
+              setOffer((prev: any) => ({
+                ...prev,
+                status: newRemaining === 0 ? "Fully Booked" : "Active",
+                capacity: `${newRemaining.toFixed(1)} kg available`,
+                demands: prev.demands.map((d: any) =>
+                  d.id === demandId
+                    ? { ...d, status: "accepted" as const, paymentStatus: "HELD" }
+                    : d
+                ),
+              }));
+              Alert.alert(
+                t("demandAcceptedSuccessTitle", language) || "Booking Accepted",
+                t("demandAcceptedSuccessMessage", language) || "You have accepted the baggage booking request."
+              );
+            } else {
+              Alert.alert("Error", res.data?.message || "Failed to accept booking");
+            }
+          } catch (err: any) {
+            const errMsg = err?.response?.data?.message || err?.message || "Failed to accept booking";
+            Alert.alert("Error", errMsg);
+          }
         },
       },
     ]);
@@ -178,13 +324,23 @@ export default function OfferDetailsScreen() {
         {
           text: t("rejectDemandConfirmTitle", language),
           style: "destructive",
-          onPress: () => {
-            setOffer((prev) => ({
-              ...prev,
-              demands: prev.demands.map((d) =>
-                d.id === demandId ? { ...d, status: "rejected" as const } : d
-              ),
-            }));
+          onPress: async () => {
+            try {
+              const res = await bookingApi.rejectBooking(demandId);
+              if (res.data?.success) {
+                setOffer((prev: any) => ({
+                  ...prev,
+                  demands: prev.demands.map((d: any) =>
+                    d.id === demandId ? { ...d, status: "rejected" as const } : d
+                  ),
+                }));
+              } else {
+                Alert.alert("Error", res.data?.message || "Failed to reject booking");
+              }
+            } catch (err: any) {
+              const errMsg = err?.response?.data?.message || err?.message || "Failed to decline booking";
+              Alert.alert("Error", errMsg);
+            }
           },
         },
       ]
@@ -218,6 +374,74 @@ export default function OfferDetailsScreen() {
                 demands: updatedDemands,
               };
             });
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMarkInTransit = (demandId: string) => {
+    Alert.alert(
+      language === "ar" ? "تأكيد صعود الرحلة" : "Confirm Flight Boarding",
+      language === "ar"
+        ? "هل بدأت رحلتك؟ سيتم تحديث حالة الشحنة إلى (في الطريق ✈️) وإشعار المرسل."
+        : "Has your flight started? The package will be marked as in-transit and sender will be notified.",
+      [
+        { text: t("cancel", language) || "Cancel", style: "cancel" },
+        {
+          text: language === "ar" ? "تأكيد ✈️" : "Confirm ✈️",
+          style: "default",
+          onPress: async () => {
+            try {
+              const res = await bookingApi.markInTransit(demandId);
+              if (res.data?.success) {
+                setOffer((prev: any) => ({
+                  ...prev,
+                  demands: prev.demands.map((d: any) =>
+                    d.id === demandId ? { ...d, status: "in_transit" } : d
+                  ),
+                }));
+                Alert.alert("Success", "Booking marked as in-transit.");
+              } else {
+                Alert.alert("Error", res.data?.message || "Failed to update");
+              }
+            } catch (err: any) {
+              Alert.alert("Error", err?.response?.data?.message || err?.message || "Failed to update");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMarkDelivered = (demandId: string) => {
+    Alert.alert(
+      language === "ar" ? "تأكيد تسليم الشحنة" : "Confirm Package Delivery",
+      language === "ar"
+        ? "هل قمت بتسليم الشحنة بنجاح؟ سيُطلب من المرسل تأكيد الاستلام لتحرير مستحقاتك من الضمان."
+        : "Have you delivered the package? The sender will be asked to confirm and release your escrow payout.",
+      [
+        { text: t("cancel", language) || "Cancel", style: "cancel" },
+        {
+          text: language === "ar" ? "تم التسليم 📦" : "Delivered 📦",
+          style: "default",
+          onPress: async () => {
+            try {
+              const res = await bookingApi.markDelivered(demandId);
+              if (res.data?.success) {
+                setOffer((prev: any) => ({
+                  ...prev,
+                  demands: prev.demands.map((d: any) =>
+                    d.id === demandId ? { ...d, status: "delivered" } : d
+                  ),
+                }));
+                Alert.alert("Success", "Package marked as delivered.");
+              } else {
+                Alert.alert("Error", res.data?.message || "Failed to update");
+              }
+            } catch (err: any) {
+              Alert.alert("Error", err?.response?.data?.message || err?.message || "Failed to update");
+            }
           },
         },
       ]
@@ -269,7 +493,7 @@ export default function OfferDetailsScreen() {
       <View style={[styles.appBar, darkMode && styles.appBarDark, { paddingTop: topPadding }]}>
         <TouchableOpacity
           style={[styles.backBtn, darkMode && styles.backBtnDark]}
-          onPress={() => router.back()}
+          onPress={handleBack}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <ArrowLeft size={18} color={darkMode ? "#FFFFFF" : "#0F172A"} />
@@ -287,18 +511,28 @@ export default function OfferDetailsScreen() {
         </View>
 
         {offer ? (
-          <TouchableOpacity
-            style={[styles.editIconBtn, darkMode && styles.editIconBtnDark, hasAccepted && styles.disabledBtn]}
-            onPress={() => {
-              if (hasAccepted) {
-                Alert.alert(t("cannotEditOfferTitle", language), t("cannotEditOfferMessage", language));
-                return;
-              }
-              setEditingModalVisible(true);
-            }}
-          >
-            {hasAccepted ? <Lock size={15} color="#94A3B8" /> : <Edit2 size={15} color={primaryColor} />}
-          </TouchableOpacity>
+          <View style={styles.headerActionsRow}>
+            <TouchableOpacity
+              style={[styles.editIconBtn, darkMode && styles.editIconBtnDark, hasAccepted && styles.disabledBtn]}
+              onPress={() => {
+                if (hasAccepted) {
+                  Alert.alert(t("cannotEditOfferTitle", language), t("cannotEditOfferMessage", language));
+                  return;
+                }
+                setEditingModalVisible(true);
+              }}
+            >
+              {hasAccepted ? <Lock size={15} color="#94A3B8" /> : <Edit2 size={15} color={primaryColor} />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.deleteIconBtn, darkMode && styles.deleteIconBtnDark]}
+              onPress={handleDeleteOffer}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Trash2 size={15} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
         ) : (
           <View style={{ width: 36 }} />
         )}
@@ -324,7 +558,7 @@ export default function OfferDetailsScreen() {
           </Text>
           <TouchableOpacity
             style={[styles.goBackBtn, { backgroundColor: primaryColor }]}
-            onPress={() => router.back()}
+            onPress={handleBack}
           >
             <Text style={styles.goBackBtnText}>
               {language === "ar" ? "الرجوع" : language === "fr" ? "Retour" : "Go Back"}
@@ -408,19 +642,31 @@ export default function OfferDetailsScreen() {
             {/* Capacity Progress Bar */}
             <View style={[styles.capacityProgressBox, darkMode && styles.capacityProgressBoxDark]}>
               <View style={styles.progressTextRow}>
-                <Text style={styles.progressLabelText}>
-                  {t("luggageCapacity", language)}
-                </Text>
-                <Text style={[styles.progressRemainingText, isFullyBooked && styles.fullBookedRedText]}>
-                  {remainingKg.toFixed(1)} / {offer.totalKg} kg
-                </Text>
+                <View>
+                  <Text style={[styles.progressLabelText, darkMode && styles.textDark]}>
+                    {t("remainingCapacity", language)}
+                  </Text>
+                  <Text style={[styles.progressRemainingText, isFullyBooked && styles.fullBookedRedText]}>
+                    {remainingKg.toFixed(1)} kg {language === "ar" ? "متاح" : language === "fr" ? "disponible" : "available"}
+                  </Text>
+                </View>
+
+                <View style={styles.alignRight}>
+                  <Text style={styles.progressBookedSubText}>
+                    {language === "ar" ? "المحجوز" : language === "fr" ? "Réservé" : "Booked"}
+                  </Text>
+                  <Text style={[styles.progressBookedText, darkMode && styles.textDark]}>
+                    {bookedKg.toFixed(1)} / {totalKg} kg
+                  </Text>
+                </View>
               </View>
+
               <View style={styles.progressBarTrack}>
                 <View
                   style={[
                     styles.progressBarFill,
                     {
-                      width: `${Math.min(100, (acceptedSumKg / offer.totalKg) * 100)}%`,
+                      width: `${bookedPercent}%`,
                       backgroundColor: isFullyBooked ? "#DC2626" : primaryColor,
                     },
                   ]}
@@ -459,6 +705,22 @@ export default function OfferDetailsScreen() {
               </View>
             </View>
           </View>
+
+          {/* Tunisia Domestic Delivery Full Details Card */}
+          {offer.deliveryMethod ? (
+            <TunisiaDeliveryDetailsCard
+              deliveryMethod={offer.deliveryMethod}
+              contactName={offer.deliveryContactName}
+              contactPhone={offer.deliveryContactPhone}
+              deliveryFee={offer.deliveryFee}
+              paymentMethod={offer.deliveryPaymentMethod}
+              deliveryAddress={offer.deliveryAddress}
+              deliveryStatus={offer.deliveryStatus}
+              bookingStatus={offer.status}
+              isTraveler={true}
+              hidePricing={true}
+            />
+          ) : null}
 
           {/* Demands Section Header */}
           <View style={styles.sectionHeaderRow}>
@@ -512,9 +774,17 @@ export default function OfferDetailsScreen() {
                 key={d.id}
                 demand={d}
                 remainingKg={remainingKg}
+                onPress={(id) =>
+                  router.push({
+                    pathname: "/(app)/booking-details" as any,
+                    params: { id },
+                  })
+                }
                 onAccept={handleAcceptDemand}
                 onReject={handleRejectDemand}
                 onRevoke={handleCancelAcceptance}
+                onMarkInTransit={handleMarkInTransit}
+                onMarkDelivered={handleMarkDelivered}
               />
             ))
           ) : (
@@ -567,6 +837,11 @@ const styles = StyleSheet.create({
   appBarTitle: { fontSize: 16, fontWeight: "900", color: "#0F172A" },
   appBarSubtitle: { fontSize: 11, color: "#64748B", fontWeight: "500", marginTop: 1 },
   textDark: { color: "#FFFFFF" },
+  headerActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   editIconBtn: {
     width: 36,
     height: 36,
@@ -578,6 +853,17 @@ const styles = StyleSheet.create({
     borderColor: "#DBEAFE",
   },
   editIconBtnDark: { backgroundColor: "#1E293B", borderColor: "#3B82F6" },
+  deleteIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  deleteIconBtnDark: { backgroundColor: "#450A0A", borderColor: "#7F1D1D" },
   disabledBtn: { opacity: 0.5 },
   scrollContent: { padding: 16, paddingBottom: 40 },
   overviewCard: {
@@ -650,9 +936,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   capacityProgressBoxDark: { backgroundColor: "#0B1120" },
-  progressTextRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  progressLabelText: { fontSize: 11.5, color: "#64748B", fontWeight: "600" },
-  progressRemainingText: { fontSize: 11.5, fontWeight: "700", color: "#059669" },
+  progressTextRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginBottom: 8,
+  },
+  progressLabelText: { fontSize: 11, color: "#64748B", fontWeight: "600", marginBottom: 2 },
+  progressRemainingText: { fontSize: 15, fontWeight: "900", color: "#059669" },
+  progressBookedSubText: { fontSize: 11, color: "#64748B", fontWeight: "600", marginBottom: 2, textAlign: "right" },
+  progressBookedText: { fontSize: 13, fontWeight: "800", color: "#0F172A", textAlign: "right" },
   fullBookedRedText: { color: "#DC2626" },
   progressBarTrack: { height: 6, backgroundColor: "#E2E8F0", borderRadius: 3, overflow: "hidden" },
   progressBarFill: { height: "100%", borderRadius: 3 },

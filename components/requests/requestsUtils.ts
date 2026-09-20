@@ -6,6 +6,21 @@ export type FilterTab = "all" | "proposals" | "pending" | "accepted" | "complete
 export type ModeTab = "my_demands" | "my_applications";
 export type AppFilterTab = "all" | "pending" | "accepted" | "rejected";
 
+export const formatDisplayDate = (rawDate?: string | Date, lang: Language = "fr"): string => {
+  if (!rawDate) return "";
+  try {
+    const d = typeof rawDate === "string" ? new Date(rawDate) : rawDate;
+    if (isNaN(d.getTime())) return String(rawDate);
+    return d.toLocaleDateString(lang === "ar" ? "ar-TN" : "fr-FR", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return String(rawDate);
+  }
+};
+
 export const getCleanWeight = (rawWeight?: string): string => {
   if (!rawWeight) return "1.0 kg";
   const match = rawWeight.match(/(\d+(?:\.\d+)?\s*kg)/i);
@@ -25,13 +40,37 @@ export const getStatusColor = (st: string, lang: Language) => {
         dot: "#10B981",
         label: t("statusAcceptedBadge", lang),
       };
+    case "delivered":
+      return {
+        bg: "#F0FDFA",
+        text: "#0D9488",
+        border: "#99F6E4",
+        dot: "#14B8A6",
+        label: lang === "ar" ? "تم التسليم 📦" : lang === "fr" ? "Livré 📦" : "Delivered 📦",
+      };
     case "completed":
       return {
-        bg: "#EFF6FF",
-        text: "#2563EB",
-        border: "#BFDBFE",
-        dot: "#3B82F6",
-        label: t("statusCompletedBadge", lang),
+        bg: "#ECFDF5",
+        text: "#059669",
+        border: "#A7F3D0",
+        dot: "#10B981",
+        label: lang === "ar" ? "مكتمل & مدفوع 💰" : lang === "fr" ? "Complété & Payé 💰" : "Completed & Paid 💰",
+      };
+    case "disputed":
+      return {
+        bg: "#FFF1F2",
+        text: "#E11D48",
+        border: "#FECDD3",
+        dot: "#F43F5E",
+        label: lang === "ar" ? "نزاع مفتوح ⚠️" : lang === "fr" ? "En litige ⚠️" : "Disputed ⚠️",
+      };
+    case "cancelled":
+      return {
+        bg: "#F1F5F9",
+        text: "#64748B",
+        border: "#CBD5E1",
+        dot: "#94A3B8",
+        label: lang === "ar" ? "ملغي" : lang === "fr" ? "Annulé" : "Cancelled",
       };
     case "rejected":
       return {
@@ -61,6 +100,38 @@ export const getApplicationStatusColor = (st: string, lang: Language) => {
         border: "#A7F3D0",
         dot: "#10B981",
         label: t("statusAcceptedProposal", lang),
+      };
+    case "delivered":
+      return {
+        bg: "#F0FDFA",
+        text: "#0D9488",
+        border: "#99F6E4",
+        dot: "#14B8A6",
+        label: lang === "ar" ? "تم التسليم (بانتظار التأكيد)" : lang === "fr" ? "Livré (En attente confirmation)" : "Delivered (Awaiting Confirmation)",
+      };
+    case "completed":
+      return {
+        bg: "#ECFDF5",
+        text: "#059669",
+        border: "#A7F3D0",
+        dot: "#10B981",
+        label: lang === "ar" ? "مكتمل & تحرير المبلغ 💰" : lang === "fr" ? "Complété & Payé 💰" : "Completed & Released 💰",
+      };
+    case "disputed":
+      return {
+        bg: "#FFF1F2",
+        text: "#E11D48",
+        border: "#FECDD3",
+        dot: "#F43F5E",
+        label: lang === "ar" ? "نزاع مفتوح ⚠️" : lang === "fr" ? "En litige ⚠️" : "Disputed ⚠️",
+      };
+    case "cancelled":
+      return {
+        bg: "#F1F5F9",
+        text: "#64748B",
+        border: "#CBD5E1",
+        dot: "#94A3B8",
+        label: lang === "ar" ? "ملغي" : lang === "fr" ? "Annulé" : "Cancelled",
       };
     case "rejected":
       return {
@@ -109,6 +180,12 @@ export const mapBackendDemand = (d: BackendDemandItem): MyPackageRequest => {
     senderName: d.user?.name || "Sender",
     senderAvatar: d.user?.avatar || undefined,
     description: d.description || undefined,
+    deliveryMethod: d.deliveryMethod || null,
+    deliveryContactName: d.deliveryContactName || null,
+    deliveryContactPhone: d.deliveryContactPhone || null,
+    deliveryFee: d.deliveryFee !== undefined ? d.deliveryFee : null,
+    deliveryPaymentMethod: d.deliveryPaymentMethod || null,
+    deliveryAddress: d.deliveryAddress || null,
     createdAt: d.createdAt,
     createdTimestamp: new Date(d.createdAt).getTime(),
     proposals: [],

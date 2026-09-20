@@ -1,9 +1,10 @@
 import React from "react";
 import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import { useRouter } from "expo-router";
 import { Language, t } from "@/lib/i18n";
 import { styles } from "@/styles/requestsStyles";
 import { FilterTab, ModeTab, AppFilterTab } from "./requestsUtils";
-import { Package, Send } from "lucide-react-native";
+import { Package, Send, Plus } from "lucide-react-native";
 
 interface RequestsHeaderProps {
   currentMode: ModeTab;
@@ -38,16 +39,52 @@ export const RequestsHeader: React.FC<RequestsHeaderProps> = ({
   darkMode,
   primaryColor,
 }) => {
+  const router = useRouter();
+
   return (
     <View style={[styles.header, darkMode && styles.headerDark]}>
-      <Text style={[styles.headerTitle, darkMode && styles.textDark]}>
-        {t("requestsTabTitle", language)}
-      </Text>
-      <Text style={styles.headerSubtitle}>
-        {currentMode === "my_demands"
-          ? t("myDemandsSubtitle", language)
-          : t("myApplicationsSubtitle", language)}
-      </Text>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <View style={{ flex: 1, paddingRight: 10 }}>
+          <Text
+            style={[styles.headerTitle, { fontSize: 20 }, darkMode && styles.textDark]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {t("requestsTabTitle", language)}
+          </Text>
+          <Text style={styles.headerSubtitle} numberOfLines={1}>
+            {currentMode === "my_demands"
+              ? t("myDemandsSubtitle", language)
+              : t("myApplicationsSubtitle", language)}
+          </Text>
+        </View>
+
+        {currentMode === "my_demands" && (
+          <TouchableOpacity
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              backgroundColor: primaryColor,
+              paddingVertical: 7,
+              paddingHorizontal: 10,
+              borderRadius: 10,
+            }}
+            onPress={() =>
+              router.push({
+                pathname: "/(app)/(tabs)/create",
+                params: { type: "request", t: Date.now().toString() },
+              })
+            }
+            activeOpacity={0.85}
+          >
+            <Plus size={14} color="#FFFFFF" strokeWidth={2.5} />
+            <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "700" }}>
+              {language === "ar" ? "طلب جديد" : language === "fr" ? "Demande" : "Request"}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* ── 2 TABS SEGMENT SWITCHER ── */}
       <View style={[styles.modeSegmentContainer, darkMode && styles.modeSegmentContainerDark]}>

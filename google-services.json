@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "87790828854",
+    "project_id": "safarlink-4272a",
+    "storage_bucket": "safarlink-4272a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:87790828854:android:2751e9c1d2c71df0fc8797",
+        "android_client_info": {
+          "package_name": "com.safarlink.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLhxjVlZJ7WvsaRyBhYk-P1dQOt46yh10"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

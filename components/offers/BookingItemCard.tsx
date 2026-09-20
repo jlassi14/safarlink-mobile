@@ -9,9 +9,12 @@ import {
 import {
   Calendar,
   Star,
-  MessageSquare,
-  XCircle,
+  ShieldCheck,
+  Lock,
+  ChevronRight,
+  Package,
 } from "lucide-react-native";
+import { useRouter } from "expo-router";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 import { colors } from "@/lib/theme";
@@ -19,35 +22,72 @@ import { MyApplicationItem, MOCK_DEFAULT_AVATAR } from "@/lib/mockData";
 
 export interface BookingItemCardProps {
   item: MyApplicationItem;
-  onRevoke: (id: string) => void;
+  onRevoke?: (id: string) => void;
+  onComplete?: (id: string) => void;
+  onDispute?: (id: string) => void;
   onContact?: (name: string, avatar?: string) => void;
+  onActionSubmitted?: () => void;
+  onPress?: (id: string) => void;
 }
 
 export default function BookingItemCard({
   item,
-  onRevoke,
-  onContact,
+  onPress,
 }: BookingItemCardProps) {
+  const router = useRouter();
   const { language, darkMode } = useAppStore();
-  const primaryColor = colors.primary || "#2563EB";
+  const primaryColor = colors.primary || "#00A3E0";
 
   const getApplicationStatusColor = (st: string) => {
-    switch (st) {
+    switch (st.toLowerCase()) {
       case "accepted":
         return {
           bg: "#ECFDF5",
           text: "#059669",
           border: "#A7F3D0",
           dot: "#10B981",
-          label: t("bookingAcceptedBadge", language),
+          label: language === "ar" ? "مقبول 🔒" : language === "fr" ? "Accepté 🔒" : "Accepted 🔒",
         };
-      case "rejected":
+      case "in_transit":
+        return {
+          bg: "#EFF6FF",
+          text: "#2563EB",
+          border: "#BFDBFE",
+          dot: "#3B82F6",
+          label: language === "ar" ? "في الطريق ✈️" : language === "fr" ? "En vol ✈️" : "In Transit ✈️",
+        };
+      case "delivered":
+        return {
+          bg: "#FAF5FF",
+          text: "#7C3AED",
+          border: "#DDD6FE",
+          dot: "#8B5CF6",
+          label: language === "ar" ? "تم التوصيل 📦" : language === "fr" ? "Livré 📦" : "Delivered 📦",
+        };
+      case "completed":
+        return {
+          bg: "#ECFDF5",
+          text: "#059669",
+          border: "#A7F3D0",
+          dot: "#10B981",
+          label: language === "ar" ? "مكتمل ✅" : language === "fr" ? "Terminé ✅" : "Completed ✅",
+        };
+      case "disputed":
         return {
           bg: "#FEF2F2",
           text: "#DC2626",
           border: "#FECACA",
           dot: "#EF4444",
-          label: t("bookingDeclinedBadge", language),
+          label: language === "ar" ? "نزاع ⚠️" : language === "fr" ? "Litige ⚠️" : "Disputed ⚠️",
+        };
+      case "rejected":
+      case "cancelled":
+        return {
+          bg: "#FEF2F2",
+          text: "#DC2626",
+          border: "#FECACA",
+          dot: "#EF4444",
+          label: language === "ar" ? "ملغى ✗" : language === "fr" ? "Annulé ✗" : "Cancelled ✗",
         };
       default:
         return {
@@ -55,30 +95,57 @@ export default function BookingItemCard({
           text: "#D97706",
           border: "#FDE68A",
           dot: "#F59E0B",
-          label: t("bookingPendingBadge", language),
+          label: language === "ar" ? "قيد الانتظار ⏳" : language === "fr" ? "En attente ⏳" : "Pending ⏳",
         };
     }
   };
 
-  const statusConfig = getApplicationStatusColor(item.status);
   const displayName = item.creatorName || "Traveler";
   const displayAvatar = item.creatorAvatar || MOCK_DEFAULT_AVATAR;
   const displayRating = item.creatorRating ? item.creatorRating.toFixed(1) : "5.0";
   const displayDate = item.targetDate || item.myFlightDate || "Flexible";
   const displayWeight = item.myRequestedWeight || item.weight || "1 kg";
-  const displayPrice = item.myProposedPrice || item.reward || "Free";
+  const displayPrice =
+    item.myProposedPrice ||
+    item.reward ||
+    (item.totalPrice ? `${item.totalPrice} ${item.currency || "QAR"}` : "Free");
+
+  const statusConfig = getApplicationStatusColor(item.status);
+  const payStatus = item.paymentStatus?.toUpperCase();
+
+  const handlePress = () => {
+    console.log("[BookingItemCard] Clicked on booking item:", item.id);
+    if (onPress) {
+      onPress(item.id);
+    } else {
+      try {
+        router.push({
+          pathname: "/(app)/booking-details" as any,
+          params: { id: item.id },
+        });
+      } catch (err) {
+        console.warn("[BookingItemCard] Navigation fallback:", err);
+        router.push(`/booking-details?id=${item.id}` as any);
+      }
+    }
+  };
 
   return (
-    <View style={[styles.card, darkMode && styles.cardDark]}>
-      {/* Top Header Row */}
+    <TouchableOpacity
+      style={[styles.card, darkMode && styles.cardDark]}
+      onPress={handlePress}
+      activeOpacity={0.85}
+    >
+      {/* Top Header: Traveler Info & Status Badge */}
       <View style={styles.topRow}>
         <View style={styles.travelerRow}>
-          <Image
-            source={{ uri: displayAvatar }}
-            style={styles.avatar}
-          />
-          <View>
-            <Text style={[styles.travelerName, darkMode && styles.textDark]}>
+          <Image source={{ uri: displayAvatar }} style={styles.avatar} />
+          <View style={styles.travelerInfoCol}>
+            <Text
+              style={[styles.travelerName, darkMode && styles.textDark]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {displayName}
             </Text>
             <View style={styles.ratingRow}>
@@ -108,7 +175,7 @@ export default function BookingItemCard({
             {item.from}
           </Text>
         </View>
-        <Text style={{ color: "#94A3B8", fontWeight: "800" }}>➔</Text>
+        <Text style={{ color: "#94A3B8", fontWeight: "800", marginHorizontal: 8 }}>➔</Text>
         <View style={[styles.routeCol, styles.alignRight]}>
           <Text style={[styles.routeText, darkMode && styles.textDark]} numberOfLines={1}>
             {item.to}
@@ -122,128 +189,154 @@ export default function BookingItemCard({
           <Calendar size={12} color="#64748B" />
           <Text style={styles.detailText}>{displayDate}</Text>
         </View>
+
         <View style={styles.detailItem}>
-          <Text style={styles.detailBold}>{displayWeight}</Text>
+          <Package size={12} color="#64748B" />
+          <Text style={[styles.detailBold, darkMode && styles.textDark]}>{displayWeight}</Text>
         </View>
+
         <Text style={[styles.priceText, { color: primaryColor }]}>
           {displayPrice}
         </Text>
       </View>
 
-      {/* Actions: Contact or Revoke */}
-      <View style={styles.footerRow}>
-        {item.status === "pending" ? (
-          <TouchableOpacity
-            style={styles.revokeBtn}
-            onPress={() => onRevoke(item.id)}
-            activeOpacity={0.8}
-          >
-            <XCircle size={14} color="#DC2626" />
-            <Text style={styles.revokeBtnText}>
-              {t("cancelRequestBtn", language)}
+      {/* Footer Bar: Escrow Chip + Clickable "Voir détails ›" */}
+      <View style={[styles.footerRow, darkMode && styles.footerRowDark]}>
+        <View style={styles.escrowIndicator}>
+          {payStatus === "HELD" ? (
+            <>
+              <Lock size={12} color="#16A34A" />
+              <Text style={styles.escrowHeldText}>
+                {language === "ar" ? "الضمان مفعل" : "Escrow Sécurisé"}
+              </Text>
+            </>
+          ) : payStatus === "RELEASED" ? (
+            <>
+              <ShieldCheck size={12} color="#0284C7" />
+              <Text style={styles.escrowReleasedText}>
+                {language === "ar" ? "الأرباح محولة" : "Fonds Transférés"}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.escrowNoneText}>
+              {language === "ar" ? "حجز مباشر" : "SafarLink Direct"}
             </Text>
-          </TouchableOpacity>
-        ) : (
-          <View />
-        )}
+          )}
+        </View>
 
-        {onContact && (
-          <TouchableOpacity
-            style={[styles.contactBtn, { backgroundColor: primaryColor }]}
-            onPress={() => onContact(displayName, displayAvatar)}
-            activeOpacity={0.85}
-          >
-            <MessageSquare size={13} color="#FFFFFF" />
-            <Text style={styles.contactBtnText}>
-              {t("contactTravelerBtn", language)}
-            </Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.viewDetailsBtn}
+          onPress={handlePress}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.viewDetailsText, { color: primaryColor }]}>
+            {language === "ar"
+              ? "عرض التفاصيل"
+              : language === "fr"
+              ? "Voir détails"
+              : "View details"}
+          </Text>
+          <ChevronRight size={14} color={primaryColor} />
+        </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 14,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 3 },
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowRadius: 3,
+    elevation: 1,
   },
   cardDark: {
-    backgroundColor: "#151E2E",
-    borderColor: "#1E293B",
+    backgroundColor: "#111827",
+    borderColor: "#1F2937",
   },
+  textDark: {
+    color: "#F8FAFC",
+  },
+
+  // ── TOP ROW ──
   topRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
   travelerRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    flex: 1,
+    marginRight: 8,
   },
   avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  travelerInfoCol: {
+    flex: 1,
   },
   travelerName: {
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 13,
+    fontWeight: "700",
     color: "#0F172A",
   },
   ratingRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    marginTop: 2,
+    marginTop: 1,
   },
   ratingText: {
     fontSize: 11,
-    color: "#64748B",
     fontWeight: "600",
+    color: "#64748B",
   },
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 3.5,
-    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
     borderWidth: 1,
   },
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
+    marginRight: 5,
   },
   statusText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
   },
+
+  // ── ROUTE ──
   routeBox: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: "#F8FAFC",
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    marginBottom: 12,
+    borderRadius: 8,
+    marginBottom: 10,
   },
   routeBoxDark: {
-    backgroundColor: "#0B1120",
+    backgroundColor: "#1E293B",
   },
   routeCol: {
     flex: 1,
@@ -252,15 +345,17 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   routeText: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: "700",
     color: "#0F172A",
   },
+
+  // ── DETAILS ROW ──
   detailsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
   detailItem: {
     flexDirection: "row",
@@ -268,51 +363,58 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   detailText: {
-    fontSize: 11.5,
+    fontSize: 12,
     color: "#64748B",
-    fontWeight: "500",
   },
   detailBold: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#0F172A",
   },
   priceText: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "800",
   },
+
+  // ── FOOTER ROW ──
   footerRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingTop: 10,
+    justifyContent: "space-between",
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
   },
-  revokeBtn: {
+  footerRowDark: {
+    borderTopColor: "#1F2937",
+  },
+  escrowIndicator: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
-  revokeBtnText: {
-    fontSize: 12,
-    color: "#DC2626",
-    fontWeight: "700",
+  escrowHeldText: {
+    fontSize: 11,
+    color: "#16A34A",
+    fontWeight: "600",
   },
-  contactBtn: {
+  escrowReleasedText: {
+    fontSize: 11,
+    color: "#0284C7",
+    fontWeight: "600",
+  },
+  escrowNoneText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
+  viewDetailsBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
+    gap: 2,
   },
-  contactBtnText: {
-    color: "#FFFFFF",
+  viewDetailsText: {
     fontSize: 12,
-    fontWeight: "800",
-  },
-  textDark: {
-    color: "#FFFFFF",
+    fontWeight: "700",
   },
 });

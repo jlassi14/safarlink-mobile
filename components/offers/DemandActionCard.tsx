@@ -5,15 +5,24 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
+  Linking,
 } from "react-native";
 import {
-  Check,
-  X,
-  RotateCcw,
-  MessageSquare,
-  AlertTriangle,
+  Star,
   Package,
+  Lock,
+  ShieldCheck,
+  ChevronRight,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Truck,
+  MapPin,
+  Phone,
+  PhoneCall,
+  User,
 } from "lucide-react-native";
+import { useRouter } from "expo-router";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 import { colors } from "@/lib/theme";
@@ -21,355 +30,515 @@ import { DemandItem, MOCK_DEFAULT_AVATAR } from "@/lib/mockData";
 
 export interface DemandActionCardProps {
   demand: DemandItem;
-  remainingKg: number;
-  onAccept: (id: string, name: string) => void;
-  onReject: (id: string, name: string) => void;
-  onRevoke: (id: string, name: string) => void;
+  remainingKg?: number;
+  onAccept?: (id: string, name: string) => void;
+  onReject?: (id: string, name: string) => void;
+  onRevoke?: (id: string, name: string) => void;
+  onMarkInTransit?: (id: string) => void;
+  onMarkDelivered?: (id: string) => void;
   onContact?: (name: string, avatar?: string) => void;
+  onPress?: (id: string) => void;
 }
 
 export default function DemandActionCard({
   demand,
-  remainingKg,
-  onAccept,
-  onReject,
-  onRevoke,
-  onContact,
+  remainingKg = 0,
+  onPress,
 }: DemandActionCardProps) {
+  const router = useRouter();
   const { language, darkMode } = useAppStore();
-  const primaryColor = colors.primary || "#2563EB";
+  const primaryColor = colors.primary || "#00A3E0";
 
   const isAccepted = demand.status === "accepted";
-  const isRejected = demand.status === "rejected";
+  const isInTransit = demand.status === "in_transit";
+  const isDelivered = demand.status === "delivered";
+  const isCompleted = demand.status === "completed";
+  const isRejected = demand.status === "rejected" || demand.status === "cancelled";
   const isPending = demand.status === "pending";
-  const weightVal = demand.weightKg || 1;
-  const exceedsCapacity = isPending && weightVal > remainingKg;
+
+  const getStatusBadge = () => {
+    if (isCompleted) {
+      return {
+        bg: "#ECFDF5",
+        text: "#059669",
+        border: "#A7F3D0",
+        dot: "#10B981",
+        label: language === "ar" ? "مكتمل ✅" : language === "fr" ? "Terminé ✅" : "Completed ✅",
+      };
+    }
+    if (isAccepted) {
+      return {
+        bg: "#ECFDF5",
+        text: "#059669",
+        border: "#A7F3D0",
+        dot: "#10B981",
+        label: language === "ar" ? "مقبول 🔒" : language === "fr" ? "Accepté 🔒" : "Accepted 🔒",
+      };
+    }
+    if (isInTransit) {
+      return {
+        bg: "#EFF6FF",
+        text: "#2563EB",
+        border: "#BFDBFE",
+        dot: "#3B82F6",
+        label: language === "ar" ? "في الطريق ✈️" : language === "fr" ? "En vol ✈️" : "In Transit ✈️",
+      };
+    }
+    if (isDelivered) {
+      return {
+        bg: "#FAF5FF",
+        text: "#7C3AED",
+        border: "#DDD6FE",
+        dot: "#8B5CF6",
+        label: language === "ar" ? "تم التوصيل 📦" : language === "fr" ? "Livré 📦" : "Delivered 📦",
+      };
+    }
+    if (isRejected) {
+      return {
+        bg: "#FEF2F2",
+        text: "#DC2626",
+        border: "#FECACA",
+        dot: "#EF4444",
+        label: language === "ar" ? "ملغى ✗" : language === "fr" ? "Refusé ✗" : "Declined ✗",
+      };
+    }
+    return {
+      bg: "#FFFBEB",
+      text: "#D97706",
+      border: "#FDE68A",
+      dot: "#F59E0B",
+      label: language === "ar" ? "قيد الانتظار ⏳" : language === "fr" ? "En attente ⏳" : "Pending ⏳",
+    };
+  };
+
+  const statusConfig = getStatusBadge();
+  const payStatus = demand.paymentStatus?.toUpperCase();
+
+  const senderName = demand.senderName || "Expéditeur";
+  const senderAvatar = demand.senderAvatar || MOCK_DEFAULT_AVATAR;
+  const senderRating = demand.senderRating ? demand.senderRating.toFixed(1) : "5.0";
+  const displayWeight = demand.weight || `${demand.weightKg || 1} kg`;
+  const displayPrice =
+    demand.proposedPrice ||
+    demand.price ||
+    (demand.totalPrice ? `${demand.totalPrice} ${demand.currency || "USD"}` : "Offre");
+
+  const handlePress = () => {
+    console.log("[DemandActionCard] Clicked demand:", demand.id);
+    if (onPress) {
+      onPress(demand.id);
+    } else {
+      try {
+        router.push({
+          pathname: "/(app)/booking-details" as any,
+          params: { id: demand.id },
+        });
+      } catch (err) {
+        console.warn("[DemandActionCard] Navigation fallback:", err);
+        router.push(`/booking-details?id=${demand.id}` as any);
+      }
+    }
+  };
 
   return (
-    <View
-      style={[
-        styles.card,
-        darkMode && styles.cardDark,
-        isAccepted && styles.cardAccepted,
-        exceedsCapacity && styles.cardExceeded,
-      ]}
+    <TouchableOpacity
+      style={[styles.card, darkMode && styles.cardDark, isAccepted && styles.cardAccepted]}
+      onPress={handlePress}
+      activeOpacity={0.85}
     >
-      {/* Sender Profile & Proposed Price */}
-      <View style={styles.headerRow}>
-        <View style={styles.senderGroup}>
-          <Image
-            source={{ uri: demand.senderAvatar || MOCK_DEFAULT_AVATAR }}
-            style={styles.avatar}
-          />
-          <View>
-            <Text style={[styles.senderName, darkMode && styles.textDark]}>
-              {demand.senderName}
+      {/* Top Header: Sender Profile & Status Badge */}
+      <View style={styles.topRow}>
+        <View style={styles.senderRow}>
+          <Image source={{ uri: senderAvatar }} style={styles.avatar} />
+          <View style={styles.senderInfoCol}>
+            <Text
+              style={[styles.senderName, darkMode && styles.textDark]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {senderName}
             </Text>
-            <View style={styles.weightBadge}>
-              <Package size={11} color={primaryColor} />
-              <Text style={[styles.weightText, { color: primaryColor }]}>
-                {demand.weight}
-              </Text>
+            <View style={styles.ratingRow}>
+              <Star size={11} color="#F59E0B" fill="#F59E0B" />
+              <Text style={styles.ratingText}>{senderRating}</Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.priceCol}>
-          <Text style={[styles.priceText, { color: primaryColor }]}>
-            {demand.proposedPrice}
-          </Text>
-          <Text style={styles.priceSub}>
-            {t("proposedReward", language)}
+        <View
+          style={[
+            styles.statusBadge,
+            { backgroundColor: statusConfig.bg, borderColor: statusConfig.border },
+          ]}
+        >
+          <View style={[styles.statusDot, { backgroundColor: statusConfig.dot }]} />
+          <Text style={[styles.statusText, { color: statusConfig.text }]}>
+            {statusConfig.label}
           </Text>
         </View>
       </View>
 
-      {/* Notes if present */}
-      {demand.notes && (
-        <View style={[styles.notesBox, darkMode && styles.notesBoxDark]}>
-          <Text style={[styles.notesText, darkMode && styles.textDark]}>
-            "{demand.notes}"
+      {/* Package Specs & Earnings Row */}
+      <View style={[styles.specsBox, darkMode && styles.specsBoxDark]}>
+        <View style={styles.specItem}>
+          <Package size={13} color="#64748B" />
+          <Text style={[styles.specText, darkMode && styles.textDark]}>
+            {displayWeight}
           </Text>
+          {demand.packageCategory && (
+            <Text style={styles.specSub}>• {demand.packageCategory}</Text>
+          )}
         </View>
-      )}
 
-      {/* Capacity Warning Badge */}
-      {exceedsCapacity && (
-        <View style={styles.warningBox}>
-          <AlertTriangle size={13} color="#B45309" />
-          <Text style={styles.warningText}>
-            {t("exceedsCapacityWarning", language)}
-          </Text>
-        </View>
-      )}
+        <Text style={[styles.priceText, { color: primaryColor }]}>
+          {displayPrice}
+        </Text>
+      </View>
 
-      {/* Actions */}
-      <View style={styles.actionsRow}>
-        {isPending && (
-          <>
-            <TouchableOpacity
-              style={[
-                styles.acceptBtn,
-                { backgroundColor: exceedsCapacity ? "#94A3B8" : "#10B981" },
-              ]}
-              onPress={() => !exceedsCapacity && onAccept(demand.id, demand.senderName)}
-              disabled={exceedsCapacity}
-              activeOpacity={0.85}
-            >
-              <Check size={14} color="#FFFFFF" strokeWidth={2.5} />
-              <Text style={styles.btnTextWhite}>
-                {t("acceptBookingBtn", language)}
+      {/* Tunisia Domestic Delivery Indicator for Traveler (Type + Address, NO Price) */}
+      {demand.deliveryMethod && (
+        <View style={[styles.deliveryNoticeBox, darkMode && styles.deliveryNoticeBoxDark]}>
+          <View style={styles.deliveryNoticeRow}>
+            <Truck size={13} color="#2563EB" />
+            <Text style={[styles.deliveryNoticeText, darkMode && styles.deliveryNoticeTextDark]}>
+              <Text style={styles.deliveryNoticeLabel}>
+                {language === "ar" ? "طريقة التوصيل: " : "Mode de livraison : "}
               </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.rejectBtn}
-              onPress={() => onReject(demand.id, demand.senderName)}
-              activeOpacity={0.8}
-            >
-              <X size={14} color="#DC2626" />
-              <Text style={styles.rejectBtnText}>
-                {t("rejectBookingBtn", language)}
-              </Text>
-            </TouchableOpacity>
-          </>
-        )}
-
-        {isAccepted && (
-          <View style={styles.acceptedRow}>
-            <View style={styles.acceptedBadge}>
-              <Check size={12} color="#059669" strokeWidth={2.5} />
-              <Text style={styles.acceptedBadgeText}>
-                {t("bookingConfirmedBadge", language)}
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.revokeBtn}
-              onPress={() => onRevoke(demand.id, demand.senderName)}
-              activeOpacity={0.7}
-            >
-              <RotateCcw size={12} color="#64748B" />
-              <Text style={styles.revokeBtnText}>
-                {t("revertToPending", language)}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {isRejected && (
-          <View style={styles.rejectedBadge}>
-            <X size={12} color="#DC2626" />
-            <Text style={styles.rejectedBadgeText}>
-              {t("demandRefusedBadge", language)}
+              {demand.deliveryMethod === "FAMILY"
+                ? t("deliveryMethodFamily", language)
+                : demand.deliveryMethod === "COURIER"
+                ? t("deliveryMethodCourier", language)
+                : t("deliveryMethodIFastPro", language)}
             </Text>
           </View>
-        )}
 
-        {onContact && (
-          <TouchableOpacity
-            style={styles.contactIconBtn}
-            onPress={() => onContact(demand.senderName, demand.senderAvatar)}
-            activeOpacity={0.7}
-          >
-            <MessageSquare size={15} color={primaryColor} />
-          </TouchableOpacity>
-        )}
+          {/* FAMILY: Display Contact Person and Phone Number with Call Action */}
+          {demand.deliveryMethod === "FAMILY" && (demand.deliveryContactName || demand.deliveryContactPhone) && (
+            <View
+              style={{
+                marginTop: 6,
+                paddingTop: 6,
+                borderTopWidth: 1,
+                borderTopColor: darkMode ? "#1E293B" : "#E2E8F0",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+                <Phone size={12} color="#059669" />
+                <Text
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: "700",
+                    color: darkMode ? "#34D399" : "#059669",
+                  }}
+                  numberOfLines={1}
+                >
+                  {demand.deliveryContactName ? `${demand.deliveryContactName} • ` : ""}
+                  {demand.deliveryContactPhone || "—"}
+                </Text>
+              </View>
+
+              {demand.deliveryContactPhone ? (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    backgroundColor: "#05966918",
+                    paddingHorizontal: 8,
+                    paddingVertical: 3.5,
+                    borderRadius: 6,
+                  }}
+                  onPress={() =>
+                    Linking.openURL(
+                      `tel:${demand.deliveryContactPhone?.replace(/\s+/g, "")}`
+                    ).catch(() => {})
+                  }
+                  activeOpacity={0.7}
+                >
+                  <PhoneCall size={11} color="#059669" />
+                  <Text style={{ fontSize: 10.5, fontWeight: "800", color: "#059669" }}>
+                    {language === "ar" ? "اتصال" : "Appeler"}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          )}
+
+          {Boolean(demand.deliveryAddress && demand.deliveryAddress.trim()) && (
+            <View style={styles.deliveryAddressRow}>
+              <MapPin size={12} color="#64748B" />
+              <Text
+                style={[styles.deliveryAddressText, darkMode && styles.deliveryAddressTextDark]}
+                numberOfLines={2}
+              >
+                {demand.deliveryAddress}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Footer Row: Escrow State + "Voir détails ›" Button */}
+      <View style={[styles.footerRow, darkMode && styles.footerRowDark]}>
+        <View style={styles.escrowIndicator}>
+          {payStatus === "HELD" ? (
+            <>
+              <Lock size={12} color="#16A34A" />
+              <Text style={styles.escrowHeldText}>
+                {language === "ar" ? "أموال الضمان مؤمنة" : "Fonds Sécurisés Escrow"}
+              </Text>
+            </>
+          ) : payStatus === "RELEASED" ? (
+            <>
+              <ShieldCheck size={12} color="#0284C7" />
+              <Text style={styles.escrowReleasedText}>
+                {language === "ar" ? "تم استلام الأرباح" : "Gains Transférés"}
+              </Text>
+            </>
+          ) : isPending ? (
+            <Text style={styles.escrowPendingText}>
+              {language === "ar" ? "في انتظار قرارك" : "En attente de votre réponse"}
+            </Text>
+          ) : (
+            <Text style={styles.escrowNoneText}>
+              {language === "ar" ? "معاملة مباشرة" : "SafarLink Direct"}
+            </Text>
+          )}
+        </View>
+
+        <TouchableOpacity
+          style={styles.viewDetailsBtn}
+          onPress={handlePress}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.viewDetailsText, { color: primaryColor }]}>
+            {language === "ar"
+              ? "عرض التفاصيل"
+              : language === "fr"
+              ? "Voir détails"
+              : "View details"}
+          </Text>
+          <ChevronRight size={14} color={primaryColor} />
+        </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 18,
+    borderRadius: 14,
     padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    marginBottom: 12,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
     elevation: 1,
   },
   cardDark: {
-    backgroundColor: "#151E2E",
-    borderColor: "#1E293B",
+    backgroundColor: "#111827",
+    borderColor: "#1F2937",
   },
   cardAccepted: {
-    borderColor: "#BBF7D0",
-    backgroundColor: "#F0FDF4",
+    borderColor: "#A7F3D0",
   },
-  cardExceeded: {
-    borderColor: "#FDE68A",
-    backgroundColor: "#FFFBEB",
+  textDark: {
+    color: "#F8FAFC",
   },
-  headerRow: {
+
+  // ── TOP ROW ──
+  topRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 10,
   },
-  senderGroup: {
+  senderRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    flex: 1,
+    marginRight: 8,
   },
   avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  senderInfoCol: {
+    flex: 1,
   },
   senderName: {
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 13,
+    fontWeight: "700",
     color: "#0F172A",
   },
-  weightBadge: {
+  ratingRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    marginTop: 2,
+    gap: 3,
+    marginTop: 1,
   },
-  weightText: {
-    fontSize: 12,
+  ratingText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 5,
+  },
+  statusText: {
+    fontSize: 11,
     fontWeight: "700",
   },
-  priceCol: {
-    alignItems: "flex-end",
-  },
-  priceText: {
-    fontSize: 15,
-    fontWeight: "900",
-  },
-  priceSub: {
-    fontSize: 10.5,
-    color: "#64748B",
-    fontWeight: "500",
-  },
-  notesBox: {
+
+  // ── SPECS BOX ──
+  specsBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     backgroundColor: "#F8FAFC",
-    borderRadius: 10,
-    padding: 8,
-    marginBottom: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
-  notesBoxDark: {
-    backgroundColor: "#0B1120",
+  specsBoxDark: {
+    backgroundColor: "#1E293B",
   },
-  notesText: {
-    fontSize: 12,
-    color: "#475569",
-    fontStyle: "italic",
-  },
-  warningBox: {
+  specItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginBottom: 10,
   },
-  warningText: {
+  specText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  specSub: {
     fontSize: 11,
-    color: "#92400E",
-    fontWeight: "600",
+    color: "#64748B",
   },
-  actionsRow: {
+  priceText: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
+  // ── DELIVERY NOTICE ──
+  deliveryNoticeBox: {
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    gap: 4,
+  },
+  deliveryNoticeBoxDark: {
+    backgroundColor: "#1E293B",
+    borderColor: "#334155",
+  },
+  deliveryNoticeRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
+  },
+  deliveryNoticeLabel: {
+    fontWeight: "700",
+    color: "#1E40AF",
+  },
+  deliveryNoticeText: {
+    fontSize: 11,
+    color: "#1E40AF",
+    fontWeight: "600",
+    flex: 1,
+  },
+  deliveryNoticeTextDark: {
+    color: "#93C5FD",
+  },
+  deliveryAddressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingLeft: 2,
+  },
+  deliveryAddressText: {
+    fontSize: 11,
+    color: "#475569",
+    fontWeight: "500",
+    flex: 1,
+  },
+  deliveryAddressTextDark: {
+    color: "#94A3B8",
+  },
+
+  // ── FOOTER ROW ──
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
   },
-  acceptBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    paddingVertical: 8,
-    borderRadius: 10,
+  footerRowDark: {
+    borderTopColor: "#1F2937",
   },
-  btnTextWhite: {
-    color: "#FFFFFF",
-    fontSize: 12.5,
-    fontWeight: "800",
-  },
-  rejectBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: "#FEF2F2",
-  },
-  rejectBtnText: {
-    color: "#DC2626",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  acceptedRow: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  acceptedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#DCFCE7",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  acceptedBadgeText: {
-    color: "#059669",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  revokeBtn: {
+  escrowIndicator: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
   },
-  revokeBtnText: {
-    color: "#64748B",
+  escrowHeldText: {
     fontSize: 11,
+    color: "#16A34A",
     fontWeight: "600",
   },
-  rejectedBadge: {
-    flex: 1,
+  escrowReleasedText: {
+    fontSize: 11,
+    color: "#0284C7",
+    fontWeight: "600",
+  },
+  escrowPendingText: {
+    fontSize: 11,
+    color: "#D97706",
+    fontWeight: "600",
+  },
+  escrowNoneText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
+  viewDetailsBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    backgroundColor: "#FEE2E2",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    gap: 2,
   },
-  rejectedBadgeText: {
-    color: "#DC2626",
+  viewDetailsText: {
     fontSize: 12,
     fontWeight: "700",
-  },
-  contactIconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  textDark: {
-    color: "#FFFFFF",
   },
 });

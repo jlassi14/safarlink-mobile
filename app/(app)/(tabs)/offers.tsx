@@ -7,6 +7,7 @@ import {
   StatusBar,
   Alert,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -24,8 +25,9 @@ import {
   MOCK_MY_APPLICATIONS,
   OfferItem,
   MyApplicationItem,
+  MOCK_DEFAULT_AVATAR,
 } from "@/lib/mockData";
-import { offerApi } from "@/lib/api";
+import { offerApi, bookingApi } from "@/lib/api";
 
 type ModeTab = "my_offers" | "my_bookings";
 type AppFilterTab = "all" | "pending" | "accepted" | "rejected";
@@ -40,16 +42,13 @@ export default function OffersScreen() {
   const [currentMode, setCurrentMode] = useState<ModeTab>("my_offers");
 
   // Offers Data
-  const [myOffersList, setMyOffersList] = useState<OfferItem[]>(() =>
-    [...REAL_MOCK_OFFERS].sort((a, b) => (b.createdTimestamp || 0) - (a.createdTimestamp || 0))
-  );
+  const [myOffersList, setMyOffersList] = useState<OfferItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [bannerError, setBannerError] = useState<string | null>(null);
 
   // Bookings Data
-  const [bookingsList, setBookingsList] = useState<MyApplicationItem[]>(() =>
-    MOCK_MY_APPLICATIONS.filter((a) => a.type === "flight_booking")
-  );
+  const [bookingsList, setBookingsList] = useState<MyApplicationItem[]>([]);
   const [appFilterTab, setAppFilterTab] = useState<AppFilterTab>("all");
 
   // Edit Modal
@@ -92,6 +91,7 @@ export default function OffersScreen() {
             destinationDate: formattedDestDate,
             destinationTime: o.destinationTime || "18:45",
             totalKg: totalKgNum,
+            remainingKg: remainingKgNum,
             capacity: `${remainingKgNum.toFixed(1)} kg available`,
             pricePerKg: `${o.currency || "QAR"} ${o.pricePerKg} / kg`,
             status: o.status === "ACTIVE" ? "Active" : o.status === "FULL" ? "Fully Booked" : o.status,
@@ -107,27 +107,96 @@ export default function OffersScreen() {
     }
   }, []);
 
+  const fetchMyBookings = useCallback(async () => {
+    try {
+      const res = await bookingApi.getMyBookings();
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        const mapped: MyApplicationItem[] = res.data.data.map((b: any) => {
+          const rawDate = b.offer?.departureDate ? new Date(b.offer.departureDate) : new Date(b.createdAt);
+          const formattedDate = isNaN(rawDate.getTime())
+            ? String(b.offer?.departureDate || "")
+            : rawDate.toLocaleDateString("en-US", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              });
+
+          return {
+            id: b.id,
+            targetPostId: b.offerId,
+            type: "flight_booking",
+            targetTitle: `${b.offer?.from || "Origin"} → ${b.offer?.to || "Destination"}`,
+            creatorName: b.offer?.user?.name || "Traveler",
+            creatorAvatar: b.offer?.user?.avatar || MOCK_DEFAULT_AVATAR,
+            creatorRating: b.offer?.user?.rating || 4.9,
+            myRequestedWeight: `${b.weightKg} kg`,
+            myProposedPrice: `${b.totalPrice} ${b.currency}`,
+            totalPrice: b.totalPrice,
+            currency: b.currency,
+            status: b.status.toLowerCase(),
+            bookingStatus: b.status,
+            paymentStatus: b.paymentStatus,
+            myFlightDate: formattedDate,
+            from: b.offer?.from,
+            to: b.offer?.to,
+            submittedAt: new Date(b.createdAt).toLocaleDateString(),
+            deliveryMethod: b.deliveryMethod,
+            deliveryContactName: b.deliveryContactName,
+            deliveryContactPhone: b.deliveryContactPhone,
+            deliveryFee: b.deliveryFee,
+            deliveryPaymentMethod: b.deliveryPaymentMethod,
+            deliveryAddress: b.deliveryAddress,
+            deliveryStatus: b.deliveryStatus || null,
+            senderAction: b.senderAction || null,
+            travelerAction: b.travelerAction || null,
+          };
+        });
+        setBookingsList(mapped);
+      }
+    } catch (e) {
+      console.error("Error fetching my bookings:", e);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      fetchMyOffers();
-    }, [fetchMyOffers])
+      setLoading(true);
+      Promise.all([fetchMyOffers(), fetchMyBookings()]).finally(() => {
+        setLoading(false);
+      });
+    }, [fetchMyOffers, fetchMyBookings])
   );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchMyOffers();
-    setRefreshing(false);
+    setLoading(true);
+    try {
+      await Promise.all([fetchMyOffers(), fetchMyBookings()]);
+    } finally {
+      setRefreshing(false);
+      setLoading(false);
+    }
   };
 
   const handleNavigateDetails = (offerId: string) => {
     router.push({
       pathname: "/(app)/offer-details",
-      params: { offerId },
+      params: { offerId, from: "offers" },
+    });
+  };
+
+  const handleNavigateBooking = (bookingId: string) => {
+    router.push({
+      pathname: "/(app)/booking-details" as any,
+      params: { id: bookingId },
     });
   };
 
   const handleDeleteOffer = (offer: OfferItem) => {
-    const hasAcceptedDemands = offer.demands && offer.demands.some((d) => d.status === "accepted");
+    const hasAcceptedDemands =
+      (typeof offer.remainingKg === "number" && offer.remainingKg < offer.totalKg) ||
+      (offer.demands &&
+        offer.demands.some((d) => ["accepted", "in_transit", "delivered"].includes(d.status)));
 
     if (hasAcceptedDemands) {
       Alert.alert(
@@ -152,8 +221,11 @@ export default function OffersScreen() {
               }
               setMyOffersList((prev) => prev.filter((o) => o.id !== offer.id));
             } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : "Failed to delete offer";
+              const msg =
+                (err as any)?.response?.data?.message ||
+                (err instanceof Error ? err.message : "Failed to delete offer");
               setBannerError(msg);
+              Alert.alert(language === "ar" ? "خطأ" : "Erreur", msg);
             }
           },
         },
@@ -222,8 +294,86 @@ export default function OffersScreen() {
         {
           text: t("yesCancel", language),
           style: "destructive",
-          onPress: () => {
-            setBookingsList((prev) => prev.filter((a) => a.id !== appId));
+          onPress: async () => {
+            try {
+              const res = await bookingApi.cancelBooking(appId);
+              if (res.data?.success) {
+                fetchMyBookings();
+              } else {
+                Alert.alert("Error", res.data?.message || "Failed to cancel booking");
+              }
+            } catch (err: any) {
+              const errMsg = err?.response?.data?.message || err?.message || "Failed to cancel booking";
+              Alert.alert("Error", errMsg);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCompleteBooking = (bookingId: string) => {
+    Alert.alert(
+      language === "ar" ? "تأكيد استلام الشحنة" : language === "fr" ? "Confirmer la réception" : "Confirm Delivery",
+      language === "ar"
+        ? "هل تم استلام شحنتك بنجاح؟ سيتم تحرير المبلغ المؤمن للمسافر فوراً."
+        : language === "fr"
+        ? "Avez-vous bien reçu votre colis ? Les fonds bloqués seront immédiatement libérés au voyageur."
+        : "Have you received your package in good condition? Escrow funds will be released to the traveler immediately.",
+      [
+        { text: t("cancel", language) || "Cancel", style: "cancel" },
+        {
+          text: language === "ar" ? "نعم، حرر المبلغ 💰" : "Confirm & Release 💰",
+          style: "default",
+          onPress: async () => {
+            try {
+              const res = await bookingApi.completeBooking(bookingId);
+              if (res.data?.success) {
+                fetchMyBookings();
+                Alert.alert(
+                  "Success! 🎉",
+                  "Delivery confirmed and payment released to traveler. Thank you for using SafarLink!"
+                );
+              } else {
+                Alert.alert("Error", res.data?.message || "Failed to complete booking");
+              }
+            } catch (err: any) {
+              const errMsg = err?.response?.data?.message || err?.message || "Failed to complete booking";
+              Alert.alert("Error", errMsg);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDisputeBooking = (bookingId: string) => {
+    Alert.alert(
+      language === "ar" ? "إبلاغ عن نزاع / مشكلة" : "Open Dispute",
+      language === "ar"
+        ? "هل تواجه مشكلة مع هذه الشحنة؟ سيتم تجميد الأموال ومراجعة الطلب من قبل إدارة SafarLink."
+        : "Are you facing an issue with this delivery? Escrow funds will be frozen and reviewed by SafarLink administration.",
+      [
+        { text: t("cancel", language) || "Cancel", style: "cancel" },
+        {
+          text: language === "ar" ? "فتح نزاع ⚠️" : "Open Dispute ⚠️",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const res = await bookingApi.disputeBooking(bookingId);
+              if (res.data?.success) {
+                fetchMyBookings();
+                Alert.alert(
+                  "Dispute Raised ⚠️",
+                  "Funds have been frozen in escrow. SafarLink support has been notified to investigate."
+                );
+              } else {
+                Alert.alert("Error", res.data?.message || "Failed to dispute booking");
+              }
+            } catch (err: any) {
+              const errMsg = err?.response?.data?.message || err?.message || "Failed to dispute booking";
+              Alert.alert("Error", errMsg);
+            }
           },
         },
       ]
@@ -326,7 +476,10 @@ export default function OffersScreen() {
 
       {/* ── SCROLL CONTENT ── */}
       <ScrollView
-        contentContainerStyle={s.scrollContent}
+        contentContainerStyle={[
+          s.scrollContent,
+          loading && { flexGrow: 1, justifyContent: "center", alignItems: "center" },
+        ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -345,7 +498,11 @@ export default function OffersScreen() {
           />
         )}
 
-        {currentMode === "my_offers" ? (
+        {loading ? (
+          <View style={s.loaderContainer}>
+            <ActivityIndicator size="large" color={primaryColor} />
+          </View>
+        ) : currentMode === "my_offers" ? (
           myOffersList.length > 0 ? (
             myOffersList.map((item) => (
               <MyOfferItemCard
@@ -372,7 +529,11 @@ export default function OffersScreen() {
             <BookingItemCard
               key={b.id}
               item={b}
+              onPress={handleNavigateBooking}
               onRevoke={handleRevokeBooking}
+              onComplete={handleCompleteBooking}
+              onDispute={handleDisputeBooking}
+              onActionSubmitted={fetchMyBookings}
             />
           ))
         ) : (

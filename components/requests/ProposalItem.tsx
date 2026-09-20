@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity, Image } from "react-native";
 import { useRouter } from "expo-router";
-import { PackageProposal } from "@/lib/mockData";
+import { TravelerProposal } from "@/lib/mockData";
 import { Language, t } from "@/lib/i18n";
 import { styles } from "@/styles/requestsStyles";
 import {
@@ -10,14 +10,23 @@ import {
   Clock,
   XCircle,
   MessageSquare,
+  ShieldCheck,
+  AlertCircle,
+  Coins,
+  Lock,
+  ExternalLink,
 } from "lucide-react-native";
+import MutualResolutionSection from "@/components/offers/MutualResolutionSection";
 
 interface ProposalItemProps {
-  proposal: PackageProposal;
-  demandId: string | number;
+  proposal: TravelerProposal;
+  demand: any;
   isDemandAccepted: boolean;
-  onAccept: (demandId: string | number, proposalId: string, travelerName: string) => void;
+  onAccept: (demand: any, proposal: TravelerProposal) => void;
   onReject: (demandId: string | number, proposalId: string, travelerName: string) => void;
+  onComplete?: (proposalId: string) => void;
+  onDispute?: (proposalId: string) => void;
+  onCancel?: (proposalId: string) => void;
   language: Language;
   darkMode: boolean;
   primaryColor: string;
@@ -25,47 +34,113 @@ interface ProposalItemProps {
 
 export const ProposalItem: React.FC<ProposalItemProps> = ({
   proposal,
-  demandId,
+  demand,
   isDemandAccepted,
   onAccept,
   onReject,
+  onComplete,
+  onDispute,
+  onCancel,
   language,
   darkMode,
   primaryColor,
 }) => {
   const router = useRouter();
+  const isArabic = language === "ar";
+
+  const demandId = demand?.id;
+  const isPending = proposal.status === "pending";
+  const isAccepted = proposal.status === "accepted";
+  const isDelivered = proposal.status === "delivered";
+  const isCompleted = proposal.status === "completed";
+  const isDisputed = proposal.status === "disputed";
+  const isRejected = proposal.status === "rejected";
+  const isCancelled = proposal.status === "cancelled";
 
   return (
     <View
       style={[
         styles.proposalCard,
         darkMode && styles.proposalCardDark,
-        proposal.status === "accepted" && styles.proposalCardAccepted,
+        (isAccepted || isDelivered || isCompleted) && styles.proposalCardAccepted,
+        isDelivered && { borderColor: "#10B981", borderWidth: 1.5 },
       ]}
     >
       <View style={styles.travelerRow}>
-        <Image source={{ uri: proposal.travelerAvatar }} style={styles.travelerAvatar} />
-        <View style={styles.travelerInfo}>
-          <View style={styles.travelerNameRow}>
-            <Text style={[styles.travelerName, darkMode && styles.textDark]}>
-              {proposal.travelerName}
+        <TouchableOpacity
+          onPress={() => {
+            const travelerId = (proposal as any).travelerId || (proposal as any).traveler?.id;
+            if (travelerId) {
+              router.push({
+                pathname: "/(app)/user/[id]",
+                params: {
+                  id: travelerId,
+                  name: proposal.travelerName,
+                  avatar: proposal.travelerAvatar,
+                },
+              });
+            }
+          }}
+          activeOpacity={0.8}
+          style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+        >
+          <Image
+            source={{
+              uri:
+                proposal.travelerAvatar ||
+                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+            }}
+            style={styles.travelerAvatar}
+          />
+          <View style={styles.travelerInfo}>
+            <View style={styles.travelerNameRow}>
+              <Text style={[styles.travelerName, darkMode && styles.textDark]}>
+                {proposal.travelerName}
+              </Text>
+              {proposal.rating && (
+                <View style={styles.ratingBadge}>
+                  <Star size={10} color="#D97706" fill="#F59E0B" />
+                  <Text style={styles.ratingText}>{proposal.rating.toFixed(1)}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.proposalCreatedAtText}>
+              {proposal.createdAt || "Just now"}
             </Text>
-            {proposal.rating && (
-              <View style={styles.ratingBadge}>
-                <Star size={10} color="#D97706" fill="#F59E0B" />
-                <Text style={styles.ratingText}>{proposal.rating.toFixed(1)}</Text>
-              </View>
-            )}
           </View>
-          <Text style={styles.proposalCreatedAtText}>
-            {proposal.createdAt || "Just now"}
-          </Text>
-        </View>
-        {proposal.status === "accepted" && (
+        </TouchableOpacity>
+
+        {isAccepted && (
           <View style={styles.acceptedPill}>
             <CheckCircle2 size={11} color="#059669" />
             <Text style={styles.acceptedPillText}>
               {t("statusAcceptedBadge", language)}
+            </Text>
+          </View>
+        )}
+
+        {isDelivered && (
+          <View style={[styles.acceptedPill, { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" }]}>
+            <Text style={{ fontSize: 11, color: "#059669", fontWeight: "700" }}>
+              {isArabic ? "تم التسليم 📦" : "Livré 📦"}
+            </Text>
+          </View>
+        )}
+
+        {isCompleted && (
+          <View style={[styles.acceptedPill, { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" }]}>
+            <CheckCircle2 size={11} color="#2563EB" />
+            <Text style={{ fontSize: 11, color: "#2563EB", fontWeight: "700" }}>
+              {isArabic ? "مكتمل 💰" : "Complété 🎉"}
+            </Text>
+          </View>
+        )}
+
+        {isDisputed && (
+          <View style={[styles.rejectedPill, { backgroundColor: "#FFF1F2", borderColor: "#FECDD3" }]}>
+            <AlertCircle size={11} color="#E11D48" />
+            <Text style={{ fontSize: 11, color: "#E11D48", fontWeight: "700" }}>
+              {isArabic ? "نزاع ⚠️" : "Litige ⚠️"}
             </Text>
           </View>
         )}
@@ -100,7 +175,7 @@ export const ProposalItem: React.FC<ProposalItemProps> = ({
           </View>
           <View style={styles.dateTimeBadgeRow}>
             <Text style={[styles.flightBoxValue, { color: primaryColor, fontWeight: "800" }]}>
-              {proposal.arrivalDate}
+              {proposal.arrivalDate || proposal.flightDate}
             </Text>
             <View
               style={[
@@ -117,17 +192,41 @@ export const ProposalItem: React.FC<ProposalItemProps> = ({
         </View>
       </View>
 
+      {/* Mutual Resolution Section when Accepted or Delivered */}
+      {(isAccepted || isDelivered) && (
+        <View style={{ marginVertical: 6 }}>
+          <MutualResolutionSection
+            proposalId={proposal.id}
+            itemType="PROPOSAL"
+            role="SENDER"
+            senderAction={(proposal as any).senderAction}
+            travelerAction={(proposal as any).travelerAction}
+            bookingStatus={proposal.status}
+            paymentStatus={(proposal as any).paymentStatus || "HELD"}
+            totalPrice={demand?.reward}
+            currency={demand?.currency || "QAR"}
+            onActionSubmitted={() => {
+              if (demandId) {
+                router.push(`/(app)/request/${demandId}`);
+              }
+            }}
+          />
+        </View>
+      )}
+
       {/* Action buttons */}
       <View style={styles.actionsRow}>
-        {proposal.status === "pending" && !isDemandAccepted ? (
+        {isPending && !isDemandAccepted ? (
           <>
             <TouchableOpacity
               style={[styles.acceptBtn, { backgroundColor: primaryColor }]}
-              onPress={() => onAccept(demandId, proposal.id, proposal.travelerName)}
+              onPress={() => onAccept(demand, proposal)}
               activeOpacity={0.85}
             >
-              <CheckCircle2 size={13} color="#FFFFFF" strokeWidth={2.5} />
-              <Text style={styles.acceptBtnText}>{t("acceptBtn", language)}</Text>
+              <ShieldCheck size={14} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={styles.acceptBtnText}>
+                {isArabic ? "قبول وتأمين الدفع 🔒" : "Accepter & Payer 🔒"}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.rejectBtn}
@@ -138,26 +237,93 @@ export const ProposalItem: React.FC<ProposalItemProps> = ({
               <Text style={styles.rejectBtnText}>{t("declineBtn", language)}</Text>
             </TouchableOpacity>
           </>
-        ) : proposal.status === "accepted" ? (
-          <TouchableOpacity
-            style={[styles.chatBtn, { backgroundColor: primaryColor }]}
-            onPress={() =>
-              router.push({
-                pathname: "/(app)/chat/[id]",
-                params: { id: "chat_mehdi" },
-              })
-            }
-            activeOpacity={0.85}
+        ) : (isAccepted || isDelivered) ? (
+          <View style={{ flexDirection: "row", gap: 8, flex: 1, flexWrap: "wrap" }}>
+            <TouchableOpacity
+              style={[styles.chatBtn, { backgroundColor: primaryColor, flex: 1 }]}
+              onPress={() =>
+                router.push({
+                  pathname: "/(app)/chat/[id]",
+                  params: { id: `chat_${proposal.id}` },
+                })
+              }
+              activeOpacity={0.85}
+            >
+              <MessageSquare size={13} color="#FFFFFF" />
+              <Text style={styles.chatBtnText}>
+                {t("chatTravelerBtn", language)}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.chatBtn,
+                {
+                  backgroundColor: darkMode ? "#334155" : "#F1F5F9",
+                  borderColor: primaryColor + "40",
+                  borderWidth: 1,
+                  paddingHorizontal: 12,
+                },
+              ]}
+              onPress={() => {
+                if (demandId) {
+                  router.push(`/(app)/request/${demandId}`);
+                }
+              }}
+              activeOpacity={0.85}
+            >
+              <ExternalLink size={13} color={primaryColor} />
+              <Text style={[styles.chatBtnText, { color: primaryColor }]}>
+                {isArabic ? "تفاصيل الطلب ➔" : "Page Détails ➔"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : isCompleted ? (
+          <View
+            style={[
+              styles.acceptedPill,
+              {
+                backgroundColor: "#ECFDF5",
+                borderColor: "#A7F3D0",
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+              },
+            ]}
           >
-            <MessageSquare size={13} color="#FFFFFF" />
-            <Text style={styles.chatBtnText}>
-              {t("chatTravelerBtn", language)}
+            <CheckCircle2 size={13} color="#059669" />
+            <Text style={{ fontSize: 12, color: "#059669", fontWeight: "700" }}>
+              {isArabic
+                ? "تم تسليم الشحنة وتحرير المبلغ بنجاح 🎉"
+                : "Livraison confirmée et fonds libérés 🎉"}
             </Text>
-          </TouchableOpacity>
+          </View>
+        ) : isDisputed ? (
+          <View
+            style={[
+              styles.rejectedPill,
+              {
+                backgroundColor: "#FFF1F2",
+                borderColor: "#FECDD3",
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+              },
+            ]}
+          >
+            <AlertCircle size={13} color="#E11D48" />
+            <Text style={{ fontSize: 12, color: "#E11D48", fontWeight: "700" }}>
+              {isArabic
+                ? "نزاع مفتوح - الأموال مجمدة قيد المراجعة"
+                : "Litige ouvert - Fonds gelés sous séquestre"}
+            </Text>
+          </View>
         ) : (
           <View style={styles.rejectedPill}>
             <Text style={styles.rejectedPillText}>
-              {t("rejectedOfferBadge", language)}
+              {isCancelled
+                ? isArabic
+                  ? "تم الإلغاء واسترداد المبلغ"
+                  : "Demande annulée / Remboursée"
+                : t("rejectedOfferBadge", language)}
             </Text>
           </View>
         )}

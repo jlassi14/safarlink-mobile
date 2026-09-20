@@ -10,7 +10,17 @@ export interface DemandItem {
   weightKg?: number;
   proposedPrice: string;
   notes?: string;
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "rejected" | "in_transit" | "delivered" | "completed" | "cancelled" | "disputed";
+  paymentStatus?: string;
+  deliveryMethod?: "FAMILY" | "COURIER" | "I_FAST_PRO" | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: "CASH" | "CLICTOPAY" | null;
+  deliveryAddress?: string | null;
+  deliveryStatus?: string | null;
+  senderAction?: "COMPLETED" | "CANCELLED" | null;
+  travelerAction?: "COMPLETED" | "CANCELLED" | null;
   createdAt?: string;
 }
 
@@ -24,9 +34,17 @@ export interface OfferItem {
   destinationDate?: string;
   destinationTime?: string;
   totalKg: number;
+  remainingKg?: number;
   capacity: string;
   pricePerKg: string;
   status: string;
+  deliveryMethod?: "FAMILY" | "COURIER" | "I_FAST_PRO" | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: "CASH" | "CLICTOPAY" | null;
+  deliveryAddress?: string | null;
+  deliveryStatus?: string | null;
   createdAt?: string;
   createdTime?: string;
   createdTimestamp?: number;
@@ -35,6 +53,7 @@ export interface OfferItem {
 
 export interface HomeOfferItem {
   id: string;
+  userId?: string;
   user: string;
   from: string;
   to: string;
@@ -47,6 +66,12 @@ export interface HomeOfferItem {
   date: string;
   rating: number;
   avatar: string;
+  deliveryMethod?: "FAMILY" | "COURIER" | "I_FAST_PRO" | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: "CASH" | "CLICTOPAY" | null;
+  deliveryAddress?: string | null;
 }
 
 export interface MiddlewareOrderContact {
@@ -100,7 +125,10 @@ export interface TravelerProposal {
   arrivalDate?: string;
   arrivalTime?: string;
   proposedPrice?: string;
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "delivered" | "completed" | "rejected" | "cancelled" | "disputed";
+  paymentStatus?: "PENDING" | "HELD" | "RELEASED" | "REFUNDED" | "DISPUTED" | string;
+  payoutStatus?: string | null;
+  rawProposal?: any;
   createdAt: string;
 }
 
@@ -120,6 +148,12 @@ export interface MyPackageRequest {
   createdAt?: string;
   createdTime?: string;
   createdTimestamp?: number;
+  deliveryMethod?: "FAMILY" | "COURIER" | "I_FAST_PRO" | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: "CASH" | "CLICTOPAY" | null;
+  deliveryAddress?: string | null;
   proposals?: TravelerProposal[];
 }
 
@@ -1016,6 +1050,7 @@ export interface MyApplicationItem {
   id: string;
   type: "delivery_proposal" | "flight_booking";
   targetTitle: string;
+  targetPostId?: string;
   creatorName: string;
   creatorAvatar: string;
   creatorRating?: number;
@@ -1030,8 +1065,22 @@ export interface MyApplicationItem {
   myArrivalTime?: string;
   myRequestedWeight?: string;
   myProposedPrice?: string;
-  status: "pending" | "accepted" | "rejected";
-  appliedAt: string;
+  status: "pending" | "accepted" | "rejected" | "in_transit" | "delivered" | "completed" | "cancelled" | "disputed";
+  bookingStatus?: string;
+  paymentStatus?: string;
+  totalPrice?: number;
+  currency?: string;
+  deliveryMethod?: "FAMILY" | "COURIER" | "I_FAST_PRO" | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: "CASH" | "CLICTOPAY" | null;
+  deliveryAddress?: string | null;
+  deliveryStatus?: string | null;
+  senderAction?: "COMPLETED" | "CANCELLED" | null;
+  travelerAction?: "COMPLETED" | "CANCELLED" | null;
+  appliedAt?: string;
+  submittedAt?: string;
 }
 
 export const MOCK_MY_APPLICATIONS: MyApplicationItem[] = [
