@@ -71,8 +71,8 @@ export default function UserProfileScreen() {
             name: params.name || "Membre SafarLink",
             avatar: params.avatar || MOCK_DEFAULT_AVATAR,
             phone: params.phone || undefined,
-            rating: 5.0,
-            reviewCount: 12,
+            rating: 0,
+            reviewCount: 0,
             isPhoneVerified: true,
             isIdentityVerified: true,
             createdAt: new Date().toISOString(),
@@ -85,8 +85,8 @@ export default function UserProfileScreen() {
           name: params.name || "Membre SafarLink",
           avatar: params.avatar || MOCK_DEFAULT_AVATAR,
           phone: params.phone || undefined,
-          rating: 5.0,
-          reviewCount: 8,
+          rating: 0,
+          reviewCount: 0,
           isPhoneVerified: true,
           isIdentityVerified: true,
           createdAt: new Date().toISOString(),
@@ -188,12 +188,18 @@ export default function UserProfileScreen() {
             <Text style={[styles.userName, { color: textColor }]}>{profile.name}</Text>
 
             <View style={styles.ratingRow}>
-              <Star size={16} color="#F59E0B" fill="#F59E0B" />
+              <Star
+                size={16}
+                color="#F59E0B"
+                fill={(profile.averageRating ?? profile.rating ?? 0) > 0 ? "#F59E0B" : "transparent"}
+              />
               <Text style={[styles.ratingNumber, { color: textColor }]}>
-                {profile.rating ? profile.rating.toFixed(1) : "5.0"}
+                {(profile.averageRating ?? profile.rating ?? 0) > 0
+                  ? Number(profile.averageRating ?? profile.rating).toFixed(1)
+                  : "0.0"}
               </Text>
               <Text style={styles.reviewCount}>
-                ({profile.reviewCount || 12}{" "}
+                ({profile.reviewCount || 0}{" "}
                 {language === "ar" ? "تقييم" : language === "fr" ? "avis" : "reviews"})
               </Text>
             </View>

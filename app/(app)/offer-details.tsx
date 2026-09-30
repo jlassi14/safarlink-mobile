@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -30,22 +30,49 @@ import EditOfferModal from "@/components/offers/EditOfferModal";
 import DemandActionCard from "@/components/offers/DemandActionCard";
 import TunisiaDeliveryDetailsCard from "@/components/TunisiaDeliveryDetailsCard";
 import { REAL_MOCK_OFFERS, OfferItem, MOCK_DEFAULT_AVATAR } from "@/lib/mockData";
-import { offerApi, bookingApi } from "@/lib/api";
+import { offerApi, bookingApi, priceProposalApi } from "@/lib/api";
 
 type DemandFilter = "all" | "pending" | "accepted" | "rejected";
+
+const formatLocationOneLine = (raw?: string) => {
+  if (!raw) return "";
+  const str = raw.trim();
+  if (str.includes("-")) {
+    const parts = str.split("-").map((p) => p.trim());
+    if (parts.length >= 2) {
+      const countryPart = parts[0];
+      const cityPart = parts[1];
+      const flagMatch = str.match(/[\uD83C][\uDDE6-\uDDFF]{2}/);
+      const flag = flagMatch ? ` ${flagMatch[0]}` : "";
+      const cleanCity = cityPart.replace(/[\uD83C][\uDDE6-\uDDFF]{2}/, "").trim();
+      const cleanCountry = countryPart.replace(/[\uD83C][\uDDE6-\uDDFF]{2}/, "").trim();
+      if (!cleanCity || cleanCity.toLowerCase() === cleanCountry.toLowerCase()) {
+        return `${cleanCountry}${flag}`;
+      }
+      return `${cleanCity}, ${cleanCountry}${flag}`;
+    }
+  }
+  return str;
+};
 
 export default function OfferDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { language, darkMode } = useAppStore();
+  const { language, darkMode, user } = useAppStore();
   const params = useLocalSearchParams<{ offerId?: string; from?: string }>();
   const offerIdParam = params.offerId;
   const fromParam = params.from;
   const primaryColor = colors.primary || "#2563EB";
 
   const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
     if (fromParam === "notifications") {
       router.replace("/(app)/(tabs)/notifications");
+    } else if (fromParam === "requests") {
+      router.replace("/(app)/(tabs)/requests");
     } else if (fromParam === "home") {
       router.replace("/(app)/(tabs)/home");
     } else {
@@ -68,114 +95,184 @@ export default function OfferDetailsScreen() {
   const [offer, setOffer] = useState<OfferItem | null>(matchedMock || null);
   const [loading, setLoading] = useState<boolean>(!matchedMock);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [proposalsCount, setProposalsCount] = useState<number>(0);
 
   const [activeFilter, setActiveFilter] = useState<DemandFilter>("all");
   const [editingModalVisible, setEditingModalVisible] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
 
-  useEffect(() => {
-    if (offerIdParam) {
-      const mock = REAL_MOCK_OFFERS.find((o) => o.id === offerIdParam);
-      if (mock) {
-        setOffer(mock);
-        setLoading(false);
-      } else {
-        setLoading(true);
-        setErrorMsg(null);
-        Promise.allSettled([
-          offerApi.getOfferById(offerIdParam),
-          bookingApi.getOfferBookings(offerIdParam),
-        ])
-          .then(([offerResult, bookingsResult]) => {
-            if (offerResult.status === "fulfilled" && offerResult.value.data?.success && offerResult.value.data.data) {
-              const o = offerResult.value.data.data;
-              const rawDepDate = o.departureDate ? new Date(o.departureDate) : new Date();
-              const formattedDepDate = isNaN(rawDepDate.getTime())
-                ? String(o.departureDate || "")
-                : rawDepDate.toLocaleDateString("en-US", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  });
+  const loadOfferData = useCallback(async (silent = false) => {
+    if (!offerIdParam) return;
+    const mock = REAL_MOCK_OFFERS.find((o) => o.id === offerIdParam);
+    if (mock) {
+      setOffer(mock);
+      setLoading(false);
+      return;
+    }
 
-              const rawDestDate = o.destinationDate ? new Date(o.destinationDate) : rawDepDate;
-              const formattedDestDate = isNaN(rawDestDate.getTime())
-                ? String(o.destinationDate || formattedDepDate)
-                : rawDestDate.toLocaleDateString("en-US", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  });
+    if (!silent) setLoading(true);
+    setErrorMsg(null);
+    try {
+      const [offerResult, bookingsResult, proposalsResult] = await Promise.allSettled([
+        offerApi.getOfferById(offerIdParam),
+        bookingApi.getOfferBookings(offerIdParam),
+        priceProposalApi.getProposals({ offerId: offerIdParam }),
+      ]);
 
-              const totalKgNum = Number(o.totalKg) || 0;
-              const remainingKgNum = Number(o.remainingKg ?? o.totalKg) || 0;
-
-              let receivedDemands: any[] = [];
-              if (
-                bookingsResult.status === "fulfilled" &&
-                bookingsResult.value.data?.success &&
-                Array.isArray(bookingsResult.value.data.data)
-              ) {
-                receivedDemands = bookingsResult.value.data.data.map((b: any) => ({
-                  id: b.id,
-                  senderName: b.sender?.name || "Sender",
-                  senderAvatar: b.sender?.avatar || MOCK_DEFAULT_AVATAR,
-                  senderRating: b.sender?.rating || 4.9,
-                  weightKg: b.weightKg,
-                  weight: `${b.weightKg} kg`,
-                  reward: `${b.totalPrice} ${b.currency}`,
-                  status: b.status.toLowerCase(),
-                  paymentStatus: b.paymentStatus,
-                  date: new Date(b.createdAt).toLocaleDateString(),
-                  deliveryMethod: b.deliveryMethod || null,
-                  deliveryContactName: b.deliveryContactName || null,
-                  deliveryContactPhone: b.deliveryContactPhone || null,
-                  deliveryFee: b.deliveryFee !== undefined && b.deliveryFee !== null ? b.deliveryFee : null,
-                  deliveryPaymentMethod: b.deliveryPaymentMethod || null,
-                  deliveryAddress: b.deliveryAddress || null,
-                  deliveryStatus: b.deliveryStatus || null,
-                  senderAction: b.senderAction || null,
-                  travelerAction: b.travelerAction || null,
-                }));
-              }
-
-              setOffer({
-                id: o.id,
-                from: o.from,
-                to: o.to,
-                flightDate: formattedDepDate,
-                departureDate: formattedDepDate,
-                departureTime: o.departureTime || "14:30",
-                destinationDate: formattedDestDate,
-                destinationTime: o.destinationTime || "18:45",
-                totalKg: totalKgNum,
-                remainingKg: remainingKgNum,
-                capacity: `${remainingKgNum.toFixed(1)} kg available`,
-                pricePerKg: `${o.currency || "QAR"} ${o.pricePerKg} / kg`,
-                status: o.status === "ACTIVE" ? "Active" : o.status === "FULL" ? "Fully Booked" : o.status,
-                deliveryMethod: o.deliveryMethod || null,
-                deliveryContactName: o.deliveryContactName || null,
-                deliveryContactPhone: o.deliveryContactPhone || null,
-                deliveryFee: o.deliveryFee !== undefined && o.deliveryFee !== null ? o.deliveryFee : null,
-                deliveryPaymentMethod: o.deliveryPaymentMethod || null,
-                deliveryAddress: o.deliveryAddress || null,
-                deliveryStatus: o.deliveryStatus || null,
-                demands: receivedDemands,
-              });
-            } else {
-              setErrorMsg("Offer not found");
-            }
-          })
-          .catch((err) => {
-            console.error("Error loading offer details:", err);
-            setErrorMsg("Failed to load offer details");
-          })
-          .finally(() => {
-            setLoading(false);
-          });
+      if (
+        proposalsResult.status === "fulfilled" &&
+        proposalsResult.value.data?.success &&
+        Array.isArray(proposalsResult.value.data.data)
+      ) {
+        setProposalsCount(proposalsResult.value.data.data.length);
       }
+
+      if (offerResult.status === "fulfilled" && offerResult.value.data?.success && offerResult.value.data.data) {
+        const o = offerResult.value.data.data;
+        const rawDepDate = o.departureDate ? new Date(o.departureDate) : new Date();
+        const formattedDepDate = isNaN(rawDepDate.getTime())
+          ? String(o.departureDate || "")
+          : rawDepDate.toLocaleDateString("en-US", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            });
+
+        const rawDestDate = o.destinationDate ? new Date(o.destinationDate) : rawDepDate;
+        const formattedDestDate = isNaN(rawDestDate.getTime())
+          ? String(o.destinationDate || formattedDepDate)
+          : rawDestDate.toLocaleDateString("en-US", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            });
+
+        const totalKgNum = Number(o.totalKg) || 0;
+        const remainingKgNum = Number(o.remainingKg ?? o.totalKg) || 0;
+
+        let receivedDemands: any[] = [];
+        const bookedClientIds = new Set<string>();
+
+        if (
+          bookingsResult.status === "fulfilled" &&
+          bookingsResult.value.data?.success &&
+          Array.isArray(bookingsResult.value.data.data)
+        ) {
+          receivedDemands = bookingsResult.value.data.data.map((b: any) => {
+            if (b.senderId) bookedClientIds.add(b.senderId);
+            return {
+              id: b.id,
+              senderName: b.sender?.name || "Sender",
+              senderAvatar: b.sender?.avatar || MOCK_DEFAULT_AVATAR,
+              senderRating: b.sender?.rating || 4.9,
+              weightKg: b.weightKg,
+              weight: `${b.weightKg} kg`,
+              reward: `${b.totalPrice} $`,
+              status: b.status.toLowerCase(),
+              paymentStatus: b.paymentStatus,
+              date: new Date(b.createdAt).toLocaleDateString(),
+              deliveryMethod: b.deliveryMethod || null,
+              deliveryContactName: b.deliveryContactName || null,
+              deliveryContactPhone: b.deliveryContactPhone || null,
+              deliveryFee: b.deliveryFee !== undefined && b.deliveryFee !== null ? b.deliveryFee : null,
+              deliveryPaymentMethod: b.deliveryPaymentMethod || null,
+              deliveryAddress: b.deliveryAddress || null,
+              deliveryStatus: b.deliveryStatus || null,
+              senderAction: b.senderAction || null,
+              travelerAction: b.travelerAction || null,
+              isPriceProposal: false,
+            };
+          });
+        }
+
+        // Also merge price negotiation proposals as demands — ONE card per client thread!
+        if (
+          proposalsResult.status === "fulfilled" &&
+          proposalsResult.value.data?.success &&
+          Array.isArray(proposalsResult.value.data.data)
+        ) {
+          // Group proposals by the counterpart client user ID
+          const proposalsByCounterpart = new Map<string, any[]>();
+          proposalsResult.value.data.data.forEach((p: any) => {
+            const clientUserId = p.senderId === user?.id ? p.receiverId : p.senderId;
+            if (!clientUserId) return;
+            // If there is already a confirmed booking for this client, skip proposals to avoid duplicates
+            if (bookedClientIds.has(clientUserId)) return;
+
+            if (!proposalsByCounterpart.has(clientUserId)) {
+              proposalsByCounterpart.set(clientUserId, []);
+            }
+            proposalsByCounterpart.get(clientUserId)!.push(p);
+          });
+
+          const proposalDemands: any[] = [];
+          proposalsByCounterpart.forEach((props, clientUserId) => {
+            // Sort by createdAt descending (newest first)
+            props.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            // Active pending proposal takes precedence, else the most recent proposal
+            const activeProp = props.find((p: any) => p.status === "PENDING") || props[0];
+
+            // The client is always the other party (NEVER the traveler themselves!)
+            const clientUser = activeProp.senderId === user?.id ? activeProp.receiver : activeProp.sender;
+            const isCounterOffer = activeProp.senderId === user?.id;
+
+            proposalDemands.push({
+              id: activeProp.id,
+              senderName: clientUser?.name || "Expéditeur",
+              senderAvatar: clientUser?.avatar || MOCK_DEFAULT_AVATAR,
+              senderRating: clientUser?.averageRating || 5.0,
+              weightKg: activeProp.weightKg || 1,
+              weight: `${activeProp.weightKg || 1} kg`,
+              reward: `${Number(((activeProp.weightKg || 1) * activeProp.proposedPrice).toFixed(1))} $`,
+              proposedPrice: `${activeProp.proposedPrice} $/kg`,
+              status: activeProp.status.toLowerCase(),
+              isPriceProposal: true,
+              isCounterOffer,
+              counterpartId: clientUserId,
+              date: new Date(activeProp.createdAt).toLocaleDateString(),
+            });
+          });
+
+          receivedDemands = [...receivedDemands, ...proposalDemands];
+        }
+
+        setOffer({
+          id: o.id,
+          from: o.from,
+          to: o.to,
+          flightDate: formattedDepDate,
+          departureDate: formattedDepDate,
+          departureTime: o.departureTime || "14:30",
+          destinationDate: formattedDestDate,
+          destinationTime: o.destinationTime || "18:45",
+          totalKg: totalKgNum,
+          remainingKg: remainingKgNum,
+          capacity: `${remainingKgNum.toFixed(1)} kg available`,
+          pricePerKg: `${o.pricePerKg} $/kg`,
+          status: o.status === "ACTIVE" ? "Active" : o.status === "FULL" ? "Fully Booked" : o.status,
+          deliveryMethod: o.deliveryMethod || null,
+          deliveryContactName: o.deliveryContactName || null,
+          deliveryContactPhone: o.deliveryContactPhone || null,
+          deliveryFee: o.deliveryFee !== undefined && o.deliveryFee !== null ? o.deliveryFee : null,
+          deliveryPaymentMethod: o.deliveryPaymentMethod || null,
+          deliveryAddress: o.deliveryAddress || null,
+          deliveryStatus: o.deliveryStatus || null,
+          demands: receivedDemands,
+        });
+      } else {
+        setErrorMsg("Offer not found");
+      }
+    } catch (err) {
+      console.error("Error loading offer details:", err);
+      setErrorMsg("Failed to load offer details");
+    } finally {
+      if (!silent) setLoading(false);
     }
   }, [offerIdParam]);
+
+  useEffect(() => {
+    loadOfferData();
+  }, [loadOfferData]);
 
   const totalKg = Number(offer?.totalKg) || 0;
 
@@ -264,9 +361,11 @@ export default function OfferDetailsScreen() {
 
     if (!isSecured) {
       Alert.alert(
-        language === "ar" ? "الدفع غير مؤمن بعد" : "Escrow Payment Pending",
+        language === "ar" ? "الدفع غير مؤمن بعد" : language === "fr" ? "Paiement en attente ⚠️" : "Escrow Payment Pending",
         language === "ar"
           ? "لم يقم المرسل بإتمام تفويض الدفع عبر PayPal بعد. لا يمكنك قبول الطلب حتى تصبح العملية مؤمنة."
+          : language === "fr"
+          ? "L'expéditeur n'a pas encore finalisé le paiement PayPal en séquestre. Vous ne pourrez accepter la demande qu'une fois les fonds sécurisés."
           : "The sender has not pre-authorized payment yet. You can only accept once payment is secured."
       );
       return;
@@ -613,29 +712,61 @@ export default function OfferDetailsScreen() {
               </View>
             </View>
 
-            {/* Route Track Corridor */}
+            {/* Route Track Corridor: Departure with date and time underneath, Destination with date and time underneath */}
             <View style={[styles.routeTimelineBox, darkMode && styles.routeTimelineBoxDark]}>
               <View style={styles.routeLocCol}>
-                <Text style={[styles.routeCityPrimary, darkMode && styles.textDark]} numberOfLines={1}>
-                  {offer.from.split("-")[1]?.trim() || offer.from}
+                <Text
+                  style={[styles.routeCityPrimary, darkMode && styles.textDark]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {formatLocationOneLine(offer.from)}
                 </Text>
-                <Text style={styles.routeCountrySecondary} numberOfLines={1}>
-                  {offer.from.split("-")[0]?.trim() || ""}
-                </Text>
+                <View style={styles.routeScheduleBlock}>
+                  <View style={styles.inlineDateRowLeft}>
+                    <Calendar size={11} color={primaryColor} />
+                    <Text style={[styles.inlineDateText, darkMode && styles.textDark]} numberOfLines={1}>
+                      {offer.departureDate || offer.flightDate}
+                    </Text>
+                  </View>
+                  <View style={[styles.timeBadgePill, darkMode && styles.timeBadgePillDark]}>
+                    <Clock size={10} color="#64748B" />
+                    <Text style={[styles.timeBadgeText, darkMode && styles.textDark]}>
+                      {offer.departureTime || "14:30"}
+                    </Text>
+                  </View>
+                </View>
               </View>
+
               <View style={styles.routeFlightTrack}>
                 <View style={styles.routeTrackLine} />
                 <View style={[styles.planeIconBadge, { backgroundColor: primaryColor }]}>
                   <Plane size={11} color="#FFFFFF" />
                 </View>
               </View>
+
               <View style={[styles.routeLocCol, styles.alignRight]}>
-                <Text style={[styles.routeCityPrimary, styles.textRight, darkMode && styles.textDark]} numberOfLines={1}>
-                  {offer.to.split("-")[1]?.trim() || offer.to}
+                <Text
+                  style={[styles.routeCityPrimary, styles.textRight, darkMode && styles.textDark]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {formatLocationOneLine(offer.to)}
                 </Text>
-                <Text style={[styles.routeCountrySecondary, styles.textRight]} numberOfLines={1}>
-                  {offer.to.split("-")[0]?.trim() || ""}
-                </Text>
+                <View style={[styles.routeScheduleBlock, styles.alignRight]}>
+                  <View style={styles.inlineDateRowRight}>
+                    <Calendar size={11} color={primaryColor} />
+                    <Text style={[styles.inlineDateText, styles.textRight, darkMode && styles.textDark]} numberOfLines={1}>
+                      {offer.destinationDate || offer.departureDate || offer.flightDate}
+                    </Text>
+                  </View>
+                  <View style={[styles.timeBadgePill, styles.timeBadgePillRight, darkMode && styles.timeBadgePillDark]}>
+                    <Clock size={10} color="#64748B" />
+                    <Text style={[styles.timeBadgeText, darkMode && styles.textDark]}>
+                      {offer.destinationTime || "18:45"}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
 
@@ -673,37 +804,6 @@ export default function OfferDetailsScreen() {
                 />
               </View>
             </View>
-
-            {/* Schedule: Departure & Arrival */}
-            <View style={[styles.scheduleRow, darkMode && styles.scheduleRowDark]}>
-              <View style={styles.scheduleCol}>
-                <Text style={styles.scheduleLabel}>
-                  {t("flightDeparture", language)}
-                </Text>
-                <Text style={[styles.scheduleDateText, darkMode && styles.textDark]}>
-                  {offer.departureDate || offer.flightDate}
-                </Text>
-                <View style={styles.timeTag}>
-                  <Clock size={11} color="#64748B" />
-                  <Text style={styles.scheduleTimeText}>{offer.departureTime || "14:30"}</Text>
-                </View>
-              </View>
-
-              <View style={styles.scheduleDivider} />
-
-              <View style={[styles.scheduleCol, styles.alignRight]}>
-                <Text style={styles.scheduleLabel}>
-                  {t("flightArrival", language)}
-                </Text>
-                <Text style={[styles.scheduleDateText, styles.textRight, darkMode && styles.textDark]}>
-                  {offer.destinationDate || offer.departureDate || offer.flightDate}
-                </Text>
-                <View style={[styles.timeTag, styles.alignRight]}>
-                  <Clock size={11} color="#64748B" />
-                  <Text style={styles.scheduleTimeText}>{offer.destinationTime || "18:45"}</Text>
-                </View>
-              </View>
-            </View>
           </View>
 
           {/* Tunisia Domestic Delivery Full Details Card */}
@@ -731,7 +831,7 @@ export default function OfferDetailsScreen() {
               </Text>
               <View style={[styles.countBadge, { backgroundColor: primaryColor + "18" }]}>
                 <Text style={[styles.countBadgeText, { color: primaryColor }]}>
-                  {(offer.demands || []).length}
+                  {(offer.demands || []).filter((d) => !d.isPriceProposal && d.status !== "cancelled" && d.status !== "rejected").length}
                 </Text>
               </View>
             </View>
@@ -767,7 +867,7 @@ export default function OfferDetailsScreen() {
             ))}
           </View>
 
-          {/* Demands List */}
+          {/* Demands List (Bookings & In-App Price Proposals) */}
           {filteredDemands.length > 0 ? (
             filteredDemands.map((d) => (
               <DemandActionCard
@@ -777,7 +877,7 @@ export default function OfferDetailsScreen() {
                 onPress={(id) =>
                   router.push({
                     pathname: "/(app)/booking-details" as any,
-                    params: { id },
+                    params: { id, type: d.isPriceProposal ? "proposal" : "booking" },
                   })
                 }
                 onAccept={handleAcceptDemand}
@@ -915,11 +1015,52 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   routeTimelineBoxDark: { backgroundColor: "#0B1120" },
-  routeLocCol: { flex: 1 },
+  routeLocCol: { flex: 1, minWidth: 0 },
   alignRight: { alignItems: "flex-end" },
-  routeCityPrimary: { fontSize: 13, fontWeight: "800", color: "#0F172A" },
+  routeCityPrimary: { fontSize: 12.5, fontWeight: "800", color: "#0F172A" },
   routeCountrySecondary: { fontSize: 10.5, color: "#64748B", fontWeight: "500", marginTop: 1 },
   textRight: { textAlign: "right" },
+  routeScheduleBlock: {
+    marginTop: 6,
+    gap: 3,
+  },
+  inlineDateRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  inlineDateRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 4,
+  },
+  inlineDateText: {
+    fontSize: 11,
+    color: "#334155",
+    fontWeight: "700",
+  },
+  timeBadgePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+  },
+  timeBadgePillRight: {
+    alignSelf: "flex-end",
+  },
+  timeBadgePillDark: {
+    backgroundColor: "#1E293B",
+  },
+  timeBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#475569",
+  },
   routeFlightTrack: {
     width: 40,
     alignItems: "center",
@@ -933,7 +1074,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F8FAFC",
     padding: 10,
     borderRadius: 10,
-    marginBottom: 12,
+    marginBottom: 0,
   },
   capacityProgressBoxDark: { backgroundColor: "#0B1120" },
   progressTextRow: {
@@ -949,47 +1090,6 @@ const styles = StyleSheet.create({
   fullBookedRedText: { color: "#DC2626" },
   progressBarTrack: { height: 6, backgroundColor: "#E2E8F0", borderRadius: 3, overflow: "hidden" },
   progressBarFill: { height: "100%", borderRadius: 3 },
-  scheduleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    backgroundColor: "#F8FAFC",
-    padding: 12,
-    borderRadius: 12,
-    marginTop: 4,
-  },
-  scheduleRowDark: { backgroundColor: "#0B1120" },
-  scheduleCol: { flex: 1 },
-  scheduleLabel: {
-    fontSize: 10.5,
-    fontWeight: "700",
-    color: "#64748B",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 3,
-  },
-  scheduleDateText: {
-    fontSize: 12.5,
-    fontWeight: "800",
-    color: "#0F172A",
-    marginBottom: 2,
-  },
-  timeTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3.5,
-  },
-  scheduleTimeText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#64748B",
-  },
-  scheduleDivider: {
-    width: 1,
-    height: "100%",
-    backgroundColor: "#E2E8F0",
-    marginHorizontal: 12,
-  },
   detailsRow: { flexDirection: "row", justifyContent: "space-between" },
   detailItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   detailText: { fontSize: 11.5, color: "#64748B", fontWeight: "500" },

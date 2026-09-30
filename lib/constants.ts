@@ -119,21 +119,7 @@ export interface CurrencyOption {
 }
 
 export const CURRENCIES_LIST: CurrencyOption[] = [
-  { code: "QAR", symbol: "QR", name: "Qatari Riyal", nameAr: "ريال قطري", nameFr: "Riyal qatarien", flag: "🇶🇦" },
-  { code: "SAR", symbol: "SAR", name: "Saudi Riyal", nameAr: "ريال سعودي", nameFr: "Riyal saoudien", flag: "🇸🇦" },
-  { code: "AED", symbol: "AED", name: "UAE Dirham", nameAr: "درهم إماراتي", nameFr: "Dirham des EAU", flag: "🇦🇪" },
-  { code: "KWD", symbol: "KWD", name: "Kuwaiti Dinar", nameAr: "دينار كويتي", nameFr: "Dinar koweïtien", flag: "🇰🇼" },
-  { code: "OMR", symbol: "OMR", name: "Omani Rial", nameAr: "ريال عماني", nameFr: "Rial omanais", flag: "🇴🇲" },
-  { code: "BHD", symbol: "BHD", name: "Bahraini Dinar", nameAr: "دينار بحريني", nameFr: "Dinar bahreïni", flag: "🇧🇭" },
-  { code: "EUR", symbol: "€", name: "Euro", nameAr: "يورو", nameFr: "Euro", flag: "🇪🇺" },
   { code: "USD", symbol: "$", name: "US Dollar", nameAr: "دولار أمريكي", nameFr: "Dollar américain", flag: "🇺🇸" },
-  { code: "CAD", symbol: "CA$", name: "Canadian Dollar", nameAr: "دولار كندي", nameFr: "Dollar canadien", flag: "🇨🇦" },
-  { code: "TND", symbol: "DT", name: "Tunisian Dinar", nameAr: "دينار تونسي", nameFr: "Dinar tunisien", flag: "🇹🇳" },
-  { code: "DZD", symbol: "DA", name: "Algerian Dinar", nameAr: "دينار جزائري", nameFr: "Dinar algérien", flag: "🇩🇿" },
-  { code: "MAD", symbol: "DH", name: "Moroccan Dirham", nameAr: "درهم مغربي", nameFr: "Dirham marocain", flag: "🇲🇦" },
-  { code: "TRY", symbol: "TL", name: "Turkish Lira", nameAr: "ليرة تركية", nameFr: "Livre turque", flag: "🇹🇷" },
-  { code: "LYD", symbol: "LD", name: "Libyan Dinar", nameAr: "دينار ليبي", nameFr: "Dinar libyen", flag: "🇱🇾" },
-  { code: "MRU", symbol: "MRU", name: "Mauritanian Ouguiya", nameAr: "أوقية موريتانية", nameFr: "Ouguiya mauritanienne", flag: "🇲🇷" },
 ];
 
 // Re-export all centralized mock data models and constants

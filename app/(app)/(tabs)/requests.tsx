@@ -7,10 +7,10 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppStore } from "@/lib/store";
-import { demandApi, proposalApi, BackendProposalItem } from "@/lib/api";
+import { demandApi, proposalApi, priceProposalApi, BackendProposalItem } from "@/lib/api";
 import {
   MyPackageRequest,
   MyApplicationItem,
@@ -33,7 +33,8 @@ import {
 import AcceptProposalPaymentModal from "@/components/requests/AcceptProposalPaymentModal";
 
 export default function RequestsScreen() {
-  const { language, darkMode } = useAppStore();
+  const router = useRouter();
+  const { language, darkMode, user } = useAppStore();
   const primaryColor = colors.primary || "#2563EB";
   const params = useLocalSearchParams<{ mode?: string; targetId?: string; expandId?: string; t?: string }>();
 
@@ -88,6 +89,10 @@ export default function RequestsScreen() {
                 });
               }
             } catch (err) {}
+            const activeProps = (base.proposals || []).filter(
+              (p: any) => p.status !== "cancelled" && p.status !== "rejected"
+            );
+            base.proposalCount = d.proposalCount !== undefined ? d.proposalCount : activeProps.length;
             return base;
           })
         );
@@ -103,35 +108,69 @@ export default function RequestsScreen() {
 
   const fetchMyProposals = useCallback(async () => {
     try {
-      const res = await proposalApi.getMyProposals();
-      if (res.data?.success && Array.isArray(res.data.data)) {
-        const mapped: MyApplicationItem[] = res.data.data.map((p: any) => {
-          const rawDate = p.flightDate ? new Date(p.flightDate) : new Date(p.createdAt);
-          const formattedDate = isNaN(rawDate.getTime())
+      const [proposalsRes, pricePropsRes] = await Promise.allSettled([
+        proposalApi.getMyProposals(),
+        priceProposalApi.getProposals(),
+      ]);
+
+      const mapped: MyApplicationItem[] = [];
+
+      if (
+        proposalsRes.status === "fulfilled" &&
+        proposalsRes.value.data?.success &&
+        Array.isArray(proposalsRes.value.data.data)
+      ) {
+        proposalsRes.value.data.data.forEach((p: any) => {
+          const rawFlightDate = p.flightDate ? new Date(p.flightDate) : new Date(p.createdAt);
+          const formattedFlightDate = isNaN(rawFlightDate.getTime())
             ? String(p.flightDate || "Flexible")
-            : rawDate.toLocaleDateString("en-US", {
+            : rawFlightDate.toLocaleDateString("en-US", {
                 day: "numeric",
                 month: "short",
                 year: "numeric",
               });
 
-          return {
+          const rawArrivalDate = p.arrivalDate ? new Date(p.arrivalDate) : (p.demand?.targetDate ? new Date(p.demand.targetDate) : null);
+          const formattedArrivalDate = rawArrivalDate && !isNaN(rawArrivalDate.getTime())
+            ? rawArrivalDate.toLocaleDateString("en-US", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })
+            : (language === "ar" ? "وصول تقديري" : "Estimée");
+
+          const parsedProposedPrice = parseFloat(String(p.proposedPrice || "").replace(/[^0-9.]/g, "")) || 0;
+          const effWeight = p.weightKg || p.demand?.weightKg || 1;
+
+          mapped.push({
             id: p.id,
             targetPostId: p.demandId,
             type: "delivery_proposal",
             targetTitle: `${p.demand?.from || "Origin"} → ${p.demand?.to || "Destination"}`,
             creatorName: p.demand?.user?.name || "Sender",
             creatorAvatar: p.demand?.user?.avatar || undefined,
-            creatorRating: p.demand?.user?.rating || 4.9,
-            myRequestedWeight: `${p.demand?.weightKg || 1} kg`,
+            creatorRating: p.demand?.user?.averageRating || 5.0,
+            creatorId: p.demand?.userId,
+            from: p.demand?.from || "Origine",
+            to: p.demand?.to || "Destination",
+            myFlightDate: formattedFlightDate,
+            departureTime: p.flightTime || "14:30",
+            destinationDate: formattedArrivalDate,
+            myArrivalDate: formattedArrivalDate,
+            destinationTime: p.arrivalTime || "18:45",
+            targetDate: formattedFlightDate,
             weight: `${p.demand?.weightKg || 1} kg`,
-            myProposedPrice: p.proposedPrice || "Free",
-            reward: p.demand?.reward ? `${p.demand?.currency || "QAR"} ${p.demand?.reward}` : "Reward",
+            myRequestedWeight: `${effWeight} kg`,
+            requestedWeightKg: effWeight,
+            remainingKg: effWeight,
+            totalKg: effWeight,
+            originalPricePerKg: p.demand?.reward ? `${p.demand.reward} $/kg` : "—",
+            myProposedPrice: parsedProposedPrice > 0 ? `${parsedProposedPrice} $/kg` : "Free",
+            reward: p.demand?.reward ? `${p.demand.reward} $` : "Reward",
+            totalPrice: parsedProposedPrice,
             status: p.status.toLowerCase() as any,
-            paymentStatus: p.paymentStatus,
-            targetDate: formattedDate,
-            from: p.demand?.from,
-            to: p.demand?.to,
+            bookingStatus: p.status,
+            paymentStatus: p.paymentStatus || "PENDING",
             deliveryMethod: p.demand?.deliveryMethod || null,
             deliveryContactName: p.demand?.deliveryContactName || null,
             deliveryContactPhone: p.demand?.deliveryContactPhone || null,
@@ -139,15 +178,61 @@ export default function RequestsScreen() {
             deliveryPaymentMethod: p.demand?.deliveryPaymentMethod || null,
             deliveryAddress: p.demand?.deliveryAddress || null,
             submittedAt: new Date(p.createdAt).toLocaleDateString(),
+            senderAction: p.senderAction,
+            travelerAction: p.travelerAction,
             rawProposal: p,
-          };
+          });
         });
-        setApplicationsList(mapped);
       }
+
+      // Also include price proposals sent by this user
+      if (
+        pricePropsRes.status === "fulfilled" &&
+        pricePropsRes.value.data?.success &&
+        Array.isArray(pricePropsRes.value.data.data)
+      ) {
+        pricePropsRes.value.data.data.forEach((p: any) => {
+          if (user?.id && p.senderId !== user.id) return;
+
+          const rawDate = p.offer?.departureDate ? new Date(p.offer.departureDate) : new Date(p.createdAt);
+          const formattedDate = isNaN(rawDate.getTime())
+            ? String(p.offer?.departureDate || "")
+            : rawDate.toLocaleDateString("en-US", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              });
+
+          mapped.unshift({
+            id: p.id,
+            targetPostId: p.offerId || p.demandId,
+            type: "flight_booking",
+            targetTitle: `${p.offer?.from || p.demand?.from || "Origine"} → ${p.offer?.to || p.demand?.to || "Destination"}`,
+            creatorName: p.receiver?.name || "Voyageur",
+            creatorAvatar: p.receiver?.avatar || undefined,
+            creatorRating: p.receiver?.averageRating || 5.0,
+            myRequestedWeight: "Négociation",
+            weight: "Négociation",
+            myProposedPrice: `${p.proposedPrice} ${p.currency}`,
+            reward: `${p.proposedPrice} ${p.currency}`,
+            status: p.status === "PENDING" ? "pending" : p.status === "ACCEPTED" ? "accepted" : "rejected",
+            bookingStatus: p.status === "PENDING" ? "PROPOSAL_PENDING" : p.status === "ACCEPTED" ? "PROPOSAL_ACCEPTED" : "PROPOSAL_REJECTED",
+            paymentStatus: "PENDING",
+            targetDate: formattedDate,
+            from: p.offer?.from || p.demand?.from,
+            to: p.offer?.to || p.demand?.to,
+            submittedAt: new Date(p.createdAt).toLocaleDateString(),
+            isPriceProposal: true,
+            proposalData: p,
+          });
+        });
+      }
+
+      setApplicationsList(mapped);
     } catch (e) {
       console.error("Error fetching my proposals:", e);
     }
-  }, []);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -204,6 +289,13 @@ export default function RequestsScreen() {
     );
   };
 
+  const handleNavigateDetails = (demandId: string | number) => {
+    router.push({
+      pathname: "/(app)/request/[id]",
+      params: { id: String(demandId), from: "requests" },
+    });
+  };
+
   /**
    * SENDER: Open Escrow Payment modal to Accept Traveler Proposal
    */
@@ -213,7 +305,7 @@ export default function RequestsScreen() {
       : (demand.reward || 50);
 
     const currencyMatch = typeof demand.reward === "string" ? demand.reward.match(/[A-Z]{3}/) : null;
-    const detectedCurrency = currencyMatch ? currencyMatch[0] : "QAR";
+    const detectedCurrency = currencyMatch ? currencyMatch[0] : "USD";
 
     setSelectedDemandForPayment({
       ...demand,
@@ -585,6 +677,7 @@ export default function RequestsScreen() {
                   demand={req}
                   isExpanded={expandedDemandIds.includes(String(req.id))}
                   onToggleExpand={toggleExpand}
+                  onNavigateDetails={handleNavigateDetails}
                   onDelete={handleDeleteDemand}
                   onEdit={handleOpenEdit}
                   onAcceptProposal={handleOpenAcceptProposal}

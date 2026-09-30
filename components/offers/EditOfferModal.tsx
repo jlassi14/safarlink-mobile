@@ -11,7 +11,7 @@ import {
   Platform,
   Keyboard,
 } from "react-native";
-import { X, ChevronDown } from "lucide-react-native";
+import { X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
@@ -19,9 +19,7 @@ import { colors } from "@/lib/theme";
 import Input from "@/components/Input";
 import Button from "@/components/Button";
 import DatePickerInput from "@/components/DatePickerInput";
-import CurrencyPickerModal from "@/components/CurrencyPickerModal";
 import { OfferItem } from "@/lib/mockData";
-import { CURRENCIES_LIST, CurrencyOption } from "@/lib/constants";
 
 export interface EditOfferModalProps {
   visible: boolean;
@@ -53,9 +51,8 @@ export default function EditOfferModal({
 
   const [editTotalKg, setEditTotalKg] = useState("");
   const [editPrice, setEditPrice] = useState("");
-  const [editCurrency, setEditCurrency] = useState("QAR");
+  const editCurrency = "USD";
   const [editFlightDateObj, setEditFlightDateObj] = useState<Date | null>(null);
-  const [currencyModalVisible, setCurrencyModalVisible] = useState(false);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -81,15 +78,10 @@ export default function EditOfferModal({
     if (offer) {
       setEditTotalKg(offer.totalKg ? offer.totalKg.toString() : "");
 
-      // Extract numeric price and currency cleanly
+      // Extract numeric price cleanly
       const rawPrice = offer.pricePerKg || "35";
       const cleanNum = rawPrice.replace(/[^0-9.]/g, "") || "35";
       setEditPrice(cleanNum);
-
-      const foundCurrency = CURRENCIES_LIST.find((c) =>
-        rawPrice.toUpperCase().includes(c.code)
-      );
-      setEditCurrency(foundCurrency ? foundCurrency.code : "QAR");
 
       // Parse date
       const dateStr = offer.departureDate || offer.flightDate;
@@ -103,11 +95,6 @@ export default function EditOfferModal({
   }, [offer]);
 
   if (!offer) return null;
-
-  const currentCurrencyObj: CurrencyOption =
-    CURRENCIES_LIST.find(
-      (c) => c.code.toUpperCase() === editCurrency.toUpperCase()
-    ) || CURRENCIES_LIST[0];
 
   const handleSave = async () => {
     const parsedKg = parseFloat(editTotalKg) || offer.totalKg;
@@ -195,29 +182,8 @@ export default function EditOfferModal({
                 <View style={styles.fieldSection}>
                   <View style={styles.fieldHeaderRow}>
                     <Text style={[styles.fieldLabel, darkMode && styles.textDark]}>
-                      {t("pricePerKg", language)}
+                      {t("pricePerKg", language)} ($)
                     </Text>
-
-                    {/* Dedicated Currency Selector Button */}
-                    <TouchableOpacity
-                      style={[styles.currencyBtn, darkMode && styles.currencyBtnDark]}
-                      onPress={() => setCurrencyModalVisible(true)}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={styles.currencyFlag}>{currentCurrencyObj.flag}</Text>
-                      <Text
-                        style={[
-                          styles.currencyCodeText,
-                          darkMode && styles.currencyCodeTextDark,
-                        ]}
-                      >
-                        {currentCurrencyObj.code}
-                      </Text>
-                      <ChevronDown
-                        size={12}
-                        color={darkMode ? "#60A5FA" : "#2563EB"}
-                      />
-                    </TouchableOpacity>
                   </View>
 
                   <Input
@@ -261,17 +227,6 @@ export default function EditOfferModal({
           </Pressable>
         </KeyboardAvoidingView>
       </Modal>
-
-      {/* Independent Currency Picker Modal */}
-      <CurrencyPickerModal
-        visible={currencyModalVisible}
-        selectedCurrency={editCurrency}
-        onSelectCurrency={(cur) => {
-          setEditCurrency(cur.code);
-          setCurrencyModalVisible(false);
-        }}
-        onClose={() => setCurrencyModalVisible(false)}
-      />
     </>
   );
 }

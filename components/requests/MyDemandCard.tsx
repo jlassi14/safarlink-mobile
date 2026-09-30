@@ -27,6 +27,7 @@ interface MyDemandCardProps {
   onCompleteProposal?: (proposalId: string) => void;
   onDisputeProposal?: (proposalId: string) => void;
   onCancelProposal?: (proposalId: string) => void;
+  onNavigateDetails?: (id: string | number) => void;
   language: Language;
   darkMode: boolean;
   primaryColor: string;
@@ -43,6 +44,7 @@ export const MyDemandCard: React.FC<MyDemandCardProps> = ({
   onCompleteProposal,
   onDisputeProposal,
   onCancelProposal,
+  onNavigateDetails,
   language,
   darkMode,
   primaryColor,
@@ -50,19 +52,39 @@ export const MyDemandCard: React.FC<MyDemandCardProps> = ({
   const router = useRouter();
   const reqIdStr = String(demand.id);
   const proposals = demand.proposals || [];
-  const proposalsCount = proposals.length;
+  const activeProposals = proposals.filter(
+    (p: any) =>
+      p.status !== "cancelled" &&
+      p.status !== "rejected" &&
+      p.status !== "CANCELLED" &&
+      p.status !== "REJECTED"
+  );
+  const proposalsCount =
+    demand.proposalCount !== undefined
+      ? demand.proposalCount
+      : activeProposals.length;
+
+  const handleOpenDetails = () => {
+    if (onNavigateDetails) {
+      onNavigateDetails(demand.id);
+    } else {
+      router.push({
+        pathname: "/(app)/request/[id]",
+        params: { id: String(demand.id), from: "requests" },
+      });
+    }
+  };
   const statusInfo = getStatusColor(demand.status || "pending", language);
   const weightStr = getCleanWeight(demand.weight || "1.0 kg");
   const formattedCreatedAt = formatDisplayDate(demand.createdAt, language) || (language === "ar" ? "حديثاً" : "Récemment");
   const formattedTargetDate = formatDisplayDate(demand.date || (demand as any).targetDate, language) || t("flexibleDate", language);
   const rewardStr = React.useMemo(() => {
     if (demand.reward !== undefined && demand.reward !== null && demand.reward !== "") {
-      const val = String(demand.reward);
-      const curr = demand.currency || "QAR";
-      return val.includes(curr) ? val : `${curr} ${val}`;
+      const val = String(demand.reward).replace(/[^0-9.]/g, "");
+      return `${val} $/kg`;
     }
     return "";
-  }, [demand.reward, demand.currency]);
+  }, [demand.reward]);
   const isDemandAccepted = demand.status === "accepted";
   const canDelete = !isDemandAccepted && demand.status !== "completed";
 
@@ -103,22 +125,9 @@ export const MyDemandCard: React.FC<MyDemandCardProps> = ({
             style={styles.avatar}
           />
           <View style={styles.senderInfo}>
-            <View style={styles.senderNameAndStatusRow}>
-              <Text style={[styles.senderName, darkMode && styles.textDark]} numberOfLines={1}>
-                {demand.senderName || "Ahmed (Me)"}
-              </Text>
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: statusInfo.bg, borderColor: statusInfo.border },
-                ]}
-              >
-                <View style={[styles.statusDot, { backgroundColor: statusInfo.dot }]} />
-                <Text style={[styles.statusText, { color: statusInfo.text }]}>
-                  {statusInfo.label}
-                </Text>
-              </View>
-            </View>
+            <Text style={[styles.senderName, darkMode && styles.textDark]} numberOfLines={1}>
+              {demand.senderName || "Ahmed (Me)"}
+            </Text>
 
             {/* Dates Metadata: Creation Date & Reception Date */}
             <View style={styles.datesMetaRow}>
@@ -143,11 +152,28 @@ export const MyDemandCard: React.FC<MyDemandCardProps> = ({
             </View>
           </View>
         </TouchableOpacity>
+
+        <View
+          style={[
+            styles.statusBadge,
+            {
+              backgroundColor: statusInfo.bg,
+              borderColor: statusInfo.border,
+              alignSelf: "flex-start",
+              flexShrink: 0,
+            },
+          ]}
+        >
+          <View style={[styles.statusDot, { backgroundColor: statusInfo.dot }]} />
+          <Text style={[styles.statusText, { color: statusInfo.text }]}>
+            {statusInfo.label}
+          </Text>
+        </View>
       </View>
 
       {/* 2. Symmetrical Aviation Flight Corridor (Tappable to Details) */}
       <TouchableOpacity
-        onPress={() => router.push(`/(app)/request/${demand.id}`)}
+        onPress={handleOpenDetails}
         activeOpacity={0.85}
       >
         <RouteCorridor
@@ -222,30 +248,47 @@ export const MyDemandCard: React.FC<MyDemandCardProps> = ({
         )}
       </View>
 
-      {/* 4. Delivery Offers Blue Banner: Navigates to Details Page */}
-      {proposalsCount > 0 ? (
-        <TouchableOpacity
-          style={[
-            styles.deliveryOffersBanner,
-            darkMode && styles.deliveryOffersBannerDark,
-          ]}
-          onPress={() => router.push(`/(app)/request/${demand.id}`)}
-          activeOpacity={0.75}
-        >
-          <View style={styles.deliveryOffersLeft}>
-            <Plane size={14} color={primaryColor} />
-            <Text style={[styles.deliveryOffersText, { color: primaryColor }]}>
-              {t("deliveryOffersReceived", language, { count: proposalsCount })}
+      {/* 4. Delivery Offers / Proposals Footer (Identical to Offers Flow) */}
+      <TouchableOpacity
+        style={[styles.demandsFooter, darkMode && styles.demandsFooterDark]}
+        onPress={handleOpenDetails}
+        activeOpacity={0.8}
+      >
+        <View style={styles.demandsBadgeGroup}>
+          <Plane size={15} color={primaryColor} />
+          <Text
+            style={[styles.demandsFooterText, { color: primaryColor }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {t("receivedProposalsSummary", language)}
+          </Text>
+        </View>
+
+        <View style={styles.demandsRightGroup}>
+          <View
+            style={[
+              styles.bookingCountBadge,
+              proposalsCount > 0
+                ? { backgroundColor: primaryColor, borderColor: primaryColor }
+                : {
+                    backgroundColor: darkMode ? "#334155" : "#E2E8F0",
+                    borderColor: darkMode ? "#475569" : "#CBD5E1",
+                  },
+            ]}
+          >
+            <Text
+              style={[
+                styles.bookingCountBadgeText,
+                { color: proposalsCount > 0 ? "#FFFFFF" : (darkMode ? "#94A3B8" : "#64748B") },
+              ]}
+            >
+              {proposalsCount}
             </Text>
           </View>
-          <ChevronRight size={14} color={primaryColor} />
-        </TouchableOpacity>
-      ) : (
-        <View style={[styles.noOffersContainer, darkMode && styles.noOffersContainerDark]}>
-          <Clock size={11} color="#94A3B8" />
-          <Text style={styles.noOffersText}>{t("noProposalsYet", language)}</Text>
+          <ChevronRight size={16} color="#94A3B8" />
         </View>
-      )}
+      </TouchableOpacity>
     </View>
   );
 };

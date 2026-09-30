@@ -17,8 +17,9 @@ import {
 import { useRouter, useFocusEffect } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppStore } from "@/lib/store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { t } from "@/lib/i18n";
-import { offerApi, bookingApi, demandApi, proposalApi } from "@/lib/api";
+import { offerApi, bookingApi, demandApi, proposalApi, priceProposalApi, PriceProposalItem } from "@/lib/api";
 import * as WebBrowser from "expo-web-browser";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -43,7 +44,9 @@ import {
   Sparkles,
   MessageSquare,
   Settings,
+  Coins,
 } from "lucide-react-native";
+import PriceProposalModal from "@/components/offers/PriceProposalModal";
 import BottomSheetModal from "@/components/BottomSheetModal";
 import DatePickerInput from "@/components/DatePickerInput";
 import TimePickerInput from "@/components/TimePickerInput";
@@ -202,9 +205,44 @@ export default function HomeScreen() {
   const [bookingDeliveryAddress, setBookingDeliveryAddress] = useState("");
   const [bookingDeliveryErrors, setBookingDeliveryErrors] = useState<Record<string, string | undefined>>({});
 
+  // Price Negotiation State (Axis 3)
+  const [isNegotiateModalVisible, setIsNegotiateModalVisible] = useState(false);
+  const [activeProposalForBooking, setActiveProposalForBooking] = useState<PriceProposalItem | null>(null);
+  const [customNegotiatePrice, setCustomNegotiatePrice] = useState("");
+  const [showNegotiateInput, setShowNegotiateInput] = useState(false);
+  const isNegotiatedAccepted = activeProposalForBooking?.status === "ACCEPTED";
+
+  useEffect(() => {
+    setCustomNegotiatePrice("");
+    setShowNegotiateInput(false);
+    if (!selectedOfferForBooking || !selectedOfferForBooking.id || selectedOfferForBooking.id.startsWith("off_mock")) {
+      setActiveProposalForBooking(null);
+      return;
+    }
+    priceProposalApi
+      .getProposals({ offerId: selectedOfferForBooking.id })
+      .then((res) => {
+        if (res.data?.success && Array.isArray(res.data.data)) {
+          const myProposals = res.data.data.filter(
+            (p) => p.senderId === user?.id || p.receiverId === user?.id
+          );
+          const accepted = myProposals.find((p) => p.status === "ACCEPTED");
+          if (accepted) {
+            setActiveProposalForBooking(accepted);
+            return;
+          }
+          const pending = myProposals.find((p) => p.status === "PENDING");
+          setActiveProposalForBooking(pending || null);
+        }
+      })
+      .catch(() => {});
+  }, [selectedOfferForBooking, user?.id]);
+
   // Proposal Modal State (Demands & Flight Schedule)
   const [selectedDemandForProposal, setSelectedDemandForProposal] = useState<HomeDemandItem | null>(null);
   const [proposalNotes, setProposalNotes] = useState("");
+  const [proposalPrice, setProposalPrice] = useState("");
+  const [proposalWeightKg, setProposalWeightKg] = useState("");
   const [proposalLoading, setProposalLoading] = useState(false);
   const [proposedDemandIds, setProposedDemandIds] = useState<string[]>([]);
   const [proposalDepDate, setProposalDepDate] = useState<Date | null>(new Date());
@@ -247,7 +285,7 @@ export default function HomeScreen() {
 
   const fetchLiveData = useCallback(async () => {
     try {
-      const [offersRes, demandsRes] = await Promise.allSettled([
+      const [offersRes, demandsRes, bookingsRes] = await Promise.allSettled([
         offerApi.getOffers({
           from: selectedDepart || undefined,
           to: selectedDestination || undefined,
@@ -256,6 +294,7 @@ export default function HomeScreen() {
           from: selectedDepart || undefined,
           to: selectedDestination || undefined,
         }),
+        user?.id ? bookingApi.getMyBookings() : Promise.reject("unauthenticated"),
       ]);
 
       if (offersRes.status === "fulfilled" && offersRes.value.data?.success && Array.isArray(offersRes.value.data?.data?.offers)) {
@@ -270,7 +309,7 @@ export default function HomeScreen() {
           destinationDate: o.destinationDate,
           destinationTime: o.destinationTime,
           weight: `${Number(o.remainingKg ?? o.totalKg).toFixed(1)} kg available`,
-          reward: `${o.currency || "QAR"} ${o.pricePerKg} / kg`,
+          reward: `${o.pricePerKg} $/kg`,
           date: o.departureDate,
           rating: o.user?.rating || 5.0,
           avatar: o.user?.avatar || MOCK_DEFAULT_AVATAR,
@@ -288,16 +327,28 @@ export default function HomeScreen() {
           date: d.targetDate ? new Date(d.targetDate).toLocaleDateString() : "Flexible",
           weight: `${d.weightKg} kg`,
           weightKg: d.weightKg,
-          reward: `${d.currency || "QAR"} ${d.reward}`,
+          reward: `${d.reward} $`,
           rating: d.user?.rating || 5.0,
           status: d.status || "pending",
         }));
         setLiveDemands(mappedD);
       }
+
+      if (bookingsRes.status === "fulfilled" && bookingsRes.value.data?.success && Array.isArray(bookingsRes.value.data?.data)) {
+        const activeBookedIds = bookingsRes.value.data.data
+          .filter(
+            (b: any) =>
+              b.status !== "CANCELLED" &&
+              b.status !== "REJECTED"
+          )
+          .map((b: any) => b.offerId)
+          .filter(Boolean);
+        setBookedOfferIds(activeBookedIds);
+      }
     } catch (e) {
       console.error("Error loading home live data:", e);
     }
-  }, [selectedDepart, selectedDestination]);
+  }, [selectedDepart, selectedDestination, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -323,13 +374,11 @@ export default function HomeScreen() {
   };
 
   const getOfferPriceDetails = (offer: any) => {
-    if (!offer) return { currency: "QR", rate: 35 };
-    const str = offer.reward || offer.pricePerKg || "QR 35";
-    const currencyMatch = str.match(/^([A-Za-z€$]+)/);
-    const currency = currencyMatch ? currencyMatch[1] : "QR";
+    if (!offer) return { currency: "$", rate: 35 };
+    const str = offer.reward || offer.pricePerKg || "35";
     const numMatch = str.match(/(\d+(?:\.\d+)?)/);
     const rate = numMatch ? parseFloat(numMatch[1]) : 35;
-    return { currency, rate };
+    return { currency: "$", rate };
   };
 
   const getAvailableCapacityKg = (offer: any) => {
@@ -828,153 +877,241 @@ export default function HomeScreen() {
 
             {isOfferTab ? (
               // ── ORIGINAL OFFER CARDS WITH DEPARTURE & ARRIVAL DATES ──
-              filteredOffers.map((item, index) => (
-                <React.Fragment key={`off_${item.id}`}>
-                  <View style={[styles.card, darkMode && styles.cardDark]}>
-                    {/* User Profile Header */}
-                    <View style={styles.cardUserRow}>
-                      <Image source={{ uri: item.avatar || MOCK_DEFAULT_AVATAR }} style={styles.cardAvatar} />
-                      <View style={styles.cardUserInfo}>
-                        <View style={styles.cardUserNameRow}>
-                          <Text style={[styles.cardUserName, darkMode && styles.textWhite]} numberOfLines={1}>
-                            {item.user}
+              filteredOffers.map((item, index) => {
+                const isBooked = bookedOfferIds.includes(item.id);
+                return (
+                  <React.Fragment key={`off_${item.id}`}>
+                    <View
+                      style={[
+                        styles.card,
+                        darkMode && styles.cardDark,
+                        isBooked && (darkMode ? styles.cardBookedDark : styles.cardBooked),
+                      ]}
+                    >
+                      {/* Booked Banner on Card */}
+                      {isBooked && (
+                        <View style={[styles.bookedBanner, darkMode && styles.bookedBannerDark]}>
+                          <CheckCircle2 size={13} color={darkMode ? "#34D399" : "#059669"} />
+                          <Text style={[styles.bookedBannerText, darkMode && styles.bookedBannerTextDark]}>
+                            {language === "ar"
+                              ? "أنت قمت بحجز هذا العرض ✓"
+                              : language === "fr"
+                                ? "Vol réservé ✓"
+                                : "Flight Booked ✓"}
                           </Text>
-                          <View style={styles.verifiedBadge}>
-                            <ShieldCheck size={12} color="#10B981" />
+                        </View>
+                      )}
+
+                      {/* User Profile Header */}
+                      <View style={styles.cardUserRow}>
+                        <Image source={{ uri: item.avatar || MOCK_DEFAULT_AVATAR }} style={styles.cardAvatar} />
+                        <View style={styles.cardUserInfo}>
+                          <View style={styles.cardUserNameRow}>
+                            <Text style={[styles.cardUserName, darkMode && styles.textWhite]} numberOfLines={1}>
+                              {item.user}
+                            </Text>
+                            <View style={styles.verifiedBadge}>
+                              <ShieldCheck size={12} color="#10B981" />
+                            </View>
+                          </View>
+                          <View style={styles.ratingRow}>
+                            <Star size={11} color="#F59E0B" fill="#F59E0B" />
+                            <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
                           </View>
                         </View>
-                        <View style={styles.ratingRow}>
-                          <Star size={11} color="#F59E0B" fill="#F59E0B" />
-                          <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+
+                        {/* Price Badge */}
+                        <View style={[styles.priceBadge, darkMode && styles.priceBadgeDark]}>
+                          <Text style={styles.priceBadgeText}>{item.reward}</Text>
                         </View>
                       </View>
 
-                      {/* Price Badge */}
-                      <View style={[styles.priceBadge, darkMode && styles.priceBadgeDark]}>
-                        <Text style={styles.priceBadgeText}>{item.reward}</Text>
-                      </View>
-                    </View>
-
-                    {/* Route Box with Departure Date and Arrival Date */}
-                    <View style={[styles.cardRouteBox, darkMode && styles.cardRouteBoxDark]}>
-                      {/* Departure Column */}
-                      <View style={styles.cardRouteItem}>
-                        <Text style={[styles.cardRouteCity, darkMode && styles.textWhite]} numberOfLines={1}>
-                          {item.from}
-                        </Text>
-                        <View style={styles.cardDateRow}>
-                          <Calendar size={10} color="#6B7280" />
-                          <Text style={styles.cardDateText} numberOfLines={1}>
-                            {item.departureDate || item.date}
+                      {/* Route Box with Departure Date and Arrival Date */}
+                      <View style={[styles.cardRouteBox, darkMode && styles.cardRouteBoxDark]}>
+                        {/* Departure Column */}
+                        <View style={styles.cardRouteItem}>
+                          <Text style={[styles.cardRouteCity, darkMode && styles.textWhite]} numberOfLines={1}>
+                            {item.from}
                           </Text>
+                          <View style={styles.cardDateRow}>
+                            <Calendar size={10} color="#6B7280" />
+                            <Text style={styles.cardDateText} numberOfLines={1}>
+                              {item.departureDate || item.date}
+                            </Text>
+                          </View>
+                          <View style={styles.cardTimeRow}>
+                            <Clock size={10} color="#9CA3AF" />
+                            <Text style={styles.cardTimeText}>{item.departureTime || "14:30"}</Text>
+                          </View>
                         </View>
-                        <View style={styles.cardTimeRow}>
-                          <Clock size={10} color="#9CA3AF" />
-                          <Text style={styles.cardTimeText}>{item.departureTime || "14:30"}</Text>
-                        </View>
-                      </View>
 
-                      {/* Animated Mid Flight Line */}
-                      <View style={styles.cardPlaneMid}>
-                        <View style={styles.dashedLine} />
-                        <View style={styles.planeCircle}>
-                          <Plane size={13} color={primaryColor} />
+                        {/* Animated Mid Flight Line */}
+                        <View style={styles.cardPlaneMid}>
+                          <View style={styles.dashedLine} />
+                          <View style={styles.planeCircle}>
+                            <Plane size={13} color={primaryColor} />
+                          </View>
+                          <View style={styles.dashedLine} />
                         </View>
-                        <View style={styles.dashedLine} />
-                      </View>
 
-                      {/* Arrival / Destination Column */}
-                      <View style={[styles.cardRouteItem, { alignItems: "flex-end" }]}>
-                        <Text style={[styles.cardRouteCity, darkMode && styles.textWhite]} numberOfLines={1}>
-                          {item.to}
-                        </Text>
-                        <View style={styles.cardDateRow}>
-                          <Calendar size={10} color="#6B7280" />
-                          <Text style={styles.cardDateText} numberOfLines={1}>
-                            {item.destinationDate || item.departureDate || item.date}
+                        {/* Arrival / Destination Column */}
+                        <View style={[styles.cardRouteItem, { alignItems: "flex-end" }]}>
+                          <Text style={[styles.cardRouteCity, darkMode && styles.textWhite]} numberOfLines={1}>
+                            {item.to}
                           </Text>
-                        </View>
-                        <View style={styles.cardTimeRow}>
-                          <Clock size={10} color="#9CA3AF" />
-                          <Text style={styles.cardTimeText}>{item.destinationTime || "18:45"}</Text>
-                        </View>
-                      </View>
-                    </View>
-
-                    {/* Card Footer Info */}
-                    <View style={styles.cardFooter}>
-                      <View style={styles.cardFooterLeft}>
-                        <View style={styles.capacityPill}>
-                          <Package size={12} color="#2563EB" />
-                          <Text style={styles.capacityPillText}>{item.weight}</Text>
+                          <View style={styles.cardDateRow}>
+                            <Calendar size={10} color="#6B7280" />
+                            <Text style={styles.cardDateText} numberOfLines={1}>
+                              {item.destinationDate || item.departureDate || item.date}
+                            </Text>
+                          </View>
+                          <View style={styles.cardTimeRow}>
+                            <Clock size={10} color="#9CA3AF" />
+                            <Text style={styles.cardTimeText}>{item.destinationTime || "18:45"}</Text>
+                          </View>
                         </View>
                       </View>
 
-                      {/* Book Action Button (Disabled if already booked or user's own offer) */}
-                      {bookedOfferIds.includes(item.id) ? (
-                        <View
-                          style={[
-                            styles.bookBtn,
-                            styles.bookBtnDisabled,
-                            darkMode && styles.bookBtnDisabledDark,
-                          ]}
-                        >
-                          <CheckCircle2 size={13} color={darkMode ? "#9CA3AF" : "#6B7280"} />
-                          <Text
+                      {/* Card Footer Info */}
+                      <View style={styles.cardFooter}>
+                        <View style={styles.cardFooterLeft}>
+                          <View
                             style={[
-                              styles.bookBtnText,
-                              { color: darkMode ? "#9CA3AF" : "#6B7280" },
+                              styles.capacityPill,
+                              darkMode && styles.capacityPillDark,
+                              isBooked && (darkMode ? styles.capacityPillBookedDark : styles.capacityPillBooked),
                             ]}
                           >
-                            {language === "ar"
-                              ? "تم الحجز"
-                              : language === "fr"
-                                ? "Réservé"
-                                : "Booked"}
-                          </Text>
+                            {isBooked ? (
+                              <>
+                                <CheckCircle2 size={12} color={darkMode ? "#34D399" : "#059669"} />
+                                <Text
+                                  style={[
+                                    styles.capacityPillText,
+                                    styles.capacityPillTextBooked,
+                                    darkMode && styles.capacityPillTextBookedDark,
+                                  ]}
+                                >
+                                  {language === "ar"
+                                    ? "تم حجز المساحة"
+                                    : language === "fr"
+                                      ? "Espace réservé"
+                                      : "Space Booked"}
+                                </Text>
+                              </>
+                            ) : (
+                              <>
+                                <Package size={12} color="#2563EB" />
+                                <Text style={styles.capacityPillText}>{item.weight}</Text>
+                              </>
+                            )}
+                          </View>
                         </View>
-                      ) : item.userId && user?.id && item.userId === user.id ? (
-                        <View
-                          style={[
-                            styles.bookBtn,
-                            styles.bookBtnDisabled,
-                            darkMode && styles.bookBtnDisabledDark,
-                          ]}
-                        >
-                          <UserIcon size={13} color={darkMode ? "#9CA3AF" : "#6B7280"} />
-                          <Text
+
+                        {/* Book Action Button (Disabled if already booked or user's own offer) */}
+                        {isBooked ? (
+                          <TouchableOpacity
                             style={[
-                              styles.bookBtnText,
-                              { color: darkMode ? "#9CA3AF" : "#6B7280" },
+                              styles.bookBtn,
+                              styles.bookBtnBooked,
+                              darkMode && styles.bookBtnBookedDark,
                             ]}
+                            onPress={() => {
+                              Alert.alert(
+                                language === "ar" ? "تنبيه" : language === "fr" ? "Attention" : "Notice",
+                                language === "ar"
+                                  ? "لقد قمت بحجز هذا العرض مسبقاً ⚠️\nيمكنك متابعة حالة طلبك في تبويب 'حجوزاتي'."
+                                  : language === "fr"
+                                    ? "Vous avez déjà réservé cette offre ⚠️\nRetrouvez et suivez l'état de votre réservation dans l'onglet 'Mes réservations'."
+                                    : "You have already booked this offer ⚠️\nYou can track its status in the 'Bookings' tab."
+                              );
+                            }}
+                            activeOpacity={0.8}
                           >
-                            {language === "ar"
-                              ? "عرضك"
-                              : language === "fr"
-                                ? "Votre offre"
-                                : "Your Offer"}
-                          </Text>
-                        </View>
-                      ) : (
-                        <TouchableOpacity
-                          style={styles.bookBtn}
-                          onPress={() => {
-                            setSelectedOfferForBooking(item);
-                            setBookingWeight("2.5");
-                            setBookingDeliveryMethod(null);
-                            setBookingContactName("");
-                            setBookingContactPhone("");
-                            setBookingDeliveryFee("");
-                            setBookingPaymentMethod("CASH");
-                            setBookingDeliveryAddress("");
-                            setBookingDeliveryErrors({});
-                          }}
-                          activeOpacity={0.85}
-                        >
-                          <Text style={styles.bookBtnText}>{t("bookOfferAction", language)}</Text>
-                          <ArrowRight size={13} color="#FFFFFF" />
-                        </TouchableOpacity>
-                      )}
+                            <CheckCircle2 size={13} color="#FFFFFF" />
+                            <Text style={styles.bookBtnText}>
+                              {language === "ar"
+                                ? "تم الحجز"
+                                : language === "fr"
+                                  ? "Réservé"
+                                  : "Booked"}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : item.userId && user?.id && item.userId === user.id ? (
+                          <TouchableOpacity
+                            style={[
+                              styles.bookBtn,
+                              styles.bookBtnDisabled,
+                              darkMode && styles.bookBtnDisabledDark,
+                            ]}
+                            onPress={() => {
+                              Alert.alert(
+                                language === "ar" ? "تنبيه" : language === "fr" ? "Attention" : "Notice",
+                                language === "ar"
+                                  ? "لا يمكنك حجز عرض قمت بنشره بنفسك ⚠️"
+                                  : language === "fr"
+                                    ? "Vous ne pouvez pas réserver votre propre offre ⚠️"
+                                    : "You cannot book your own offer ⚠️"
+                              );
+                            }}
+                            activeOpacity={0.8}
+                          >
+                            <UserIcon size={13} color={darkMode ? "#9CA3AF" : "#6B7280"} />
+                            <Text
+                              style={[
+                                styles.bookBtnText,
+                                { color: darkMode ? "#9CA3AF" : "#6B7280" },
+                              ]}
+                            >
+                              {language === "ar"
+                                ? "عرضك"
+                                : language === "fr"
+                                  ? "Votre offre"
+                                  : "Your Offer"}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.bookBtn}
+                            onPress={() => {
+                              if (!user?.id) {
+                                Alert.alert(
+                                  language === "ar" ? "تنبيه" : language === "fr" ? "Attention" : "Notice",
+                                  language === "ar"
+                                    ? "يرجى تسجيل الدخول أولاً للمتابعة ⚠️"
+                                    : language === "fr"
+                                      ? "Veuillez vous connecter pour continuer ⚠️"
+                                      : "Please log in to continue ⚠️"
+                                );
+                                return;
+                              }
+                              if (bookedOfferIds.includes(item.id)) {
+                                Alert.alert(
+                                  language === "ar" ? "تنبيه" : language === "fr" ? "Attention" : "Notice",
+                                  language === "ar"
+                                    ? "لقد قمت بحجز هذا العرض مسبقاً ⚠️\nيمكنك متابعة حالة طلبك في تبويب 'حجوزاتي'."
+                                    : language === "fr"
+                                      ? "Vous avez déjà réservé cette offre ⚠️\nRetrouvez et suivez l'état de votre réservation dans l'onglet 'Mes réservations'."
+                                      : "You have already booked this offer ⚠️\nYou can track its status in the 'Bookings' tab."
+                                );
+                                return;
+                              }
+                              setSelectedOfferForBooking(item);
+                              setBookingWeight("2.5");
+                              setBookingDeliveryMethod(null);
+                              setBookingContactName("");
+                              setBookingContactPhone("");
+                              setBookingDeliveryFee("");
+                              setBookingPaymentMethod("CASH");
+                              setBookingDeliveryAddress("");
+                              setBookingDeliveryErrors({});
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={styles.bookBtnText}>{t("bookOfferAction", language)}</Text>
+                            <ArrowRight size={13} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        )}
                     </View>
                   </View>
 
@@ -985,7 +1122,8 @@ export default function HomeScreen() {
                     </View>
                   )}
                 </React.Fragment>
-              ))
+              );
+            })
             ) : (
               // ── DEMAND CARDS (MATCHING REQUESTS TAB DESIGN) ──
               filteredDemands.map((item, index) => {
@@ -1003,6 +1141,17 @@ export default function HomeScreen() {
                         onPress={() => {
                           if (!isAlreadyProposed) {
                             setSelectedDemandForProposal(item);
+                            const parsedReward = item.reward ? item.reward.replace(/[^0-9.]/g, "") : "";
+                            setProposalPrice(parsedReward);
+                            const parsedWeight = item.weightKg ? String(item.weightKg) : (item.weight ? item.weight.replace(/[^0-9.]/g, "") : "1");
+                            setProposalWeightKg(parsedWeight);
+                            if (item.date && !isNaN(new Date(item.date).getTime())) {
+                              setProposalDepDate(new Date(item.date));
+                              setProposalArrDate(new Date(item.date));
+                            } else {
+                              setProposalDepDate(new Date());
+                              setProposalArrDate(new Date());
+                            }
                           }
                         }}
                       />
@@ -1102,16 +1251,97 @@ export default function HomeScreen() {
             {(() => {
               const { currency, rate } = getOfferPriceDetails(selectedOfferForBooking);
               const w = parseFloat(bookingWeight) || 0;
-              const total = (w * rate).toFixed(2);
+              const standardTotal = (w * rate).toFixed(2);
+              const isNegotiatedAccepted = activeProposalForBooking?.status === "ACCEPTED";
+              const isNegotiatedPending = activeProposalForBooking?.status === "PENDING";
+              const finalPrice = isNegotiatedAccepted
+                ? activeProposalForBooking.proposedPrice.toFixed(2)
+                : standardTotal;
 
               return (
-                <View style={[styles.priceSummaryBox, darkMode && styles.priceSummaryBoxDark]}>
-                  <Text style={[styles.priceSummaryLabel, darkMode && styles.textMutedDark]}>
-                    {t("estimatedTotal", language) || "Estimated Total Cost:"}
-                  </Text>
-                  <Text style={styles.priceSummaryValue}>
-                    {currency} {total}
-                  </Text>
+                <View style={{ marginBottom: 12 }}>
+                  <View style={[styles.priceSummaryBox, darkMode && styles.priceSummaryBoxDark]}>
+                    <Text style={[styles.priceSummaryLabel, darkMode && styles.textMutedDark]}>
+                      {isNegotiatedAccepted
+                        ? (language === "ar" ? "السعر المتفق عليه (المفاوضة):" : "Tarif convenu négocié :")
+                        : (t("estimatedTotal", language) || "Estimated Total Cost:")}
+                    </Text>
+                    <Text style={[styles.priceSummaryValue, isNegotiatedAccepted && { color: "#059669" }]}>
+                      {currency} {finalPrice}
+                    </Text>
+                  </View>
+
+                  {isNegotiatedAccepted && (
+                    <View style={styles.negotiationAcceptedBadge}>
+                      <CheckCircle2 size={14} color="#059669" />
+                      <Text style={styles.negotiationAcceptedText}>
+                        {language === "ar"
+                          ? `تم قبول عرضك (${finalPrice} ${currency}) وسيتم تثبيته تلقائياً عند الدفع.`
+                          : `Prix négocié validé (${finalPrice} ${currency}). Verrouillé pour cette réservation.`}
+                      </Text>
+                    </View>
+                  )}
+
+                  {isNegotiatedPending && (
+                    <View style={styles.negotiationPendingBadge}>
+                      <Clock size={14} color="#D97706" />
+                      <Text style={styles.negotiationPendingText}>
+                        {language === "ar"
+                          ? `لديك اقتراح بقيمة ${activeProposalForBooking.proposedPrice} ${currency} في انتظار موافقة المسافر.`
+                          : `Offre de ${activeProposalForBooking.proposedPrice} ${currency} envoyée. En attente de réponse.`}
+                      </Text>
+                    </View>
+                  )}
+
+                  {!isNegotiatedAccepted && (
+                    <View style={[styles.inlineNegotiateCard, darkMode && styles.inlineNegotiateCardDark]}>
+                      <TouchableOpacity
+                        style={styles.inlineNegotiateToggle}
+                        onPress={() => setShowNegotiateInput((prev) => !prev)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Coins size={15} color="#6366F1" />
+                          <Text style={[styles.inlineNegotiateTitle, darkMode && styles.textWhite]}>
+                            {language === "ar"
+                              ? "هل ترغب في اقتراح سعر مخصص؟ (المفاوضة)"
+                              : "Souhaitez-vous négocier ce tarif ?"}
+                          </Text>
+                        </View>
+                        <ChevronDown
+                          size={16}
+                          color="#6366F1"
+                          style={{ transform: [{ rotate: showNegotiateInput ? "180deg" : "0deg" }] }}
+                        />
+                      </TouchableOpacity>
+
+                      {showNegotiateInput && (
+                        <View style={styles.inlineNegotiateBody}>
+                          <Text style={[styles.inlineNegotiateHint, darkMode && styles.textMutedDark]}>
+                            {language === "ar"
+                              ? "أدخل السعر المقترح لكل كيلوغرام ($/kg):"
+                              : "Entrez votre tarif par kg proposé ($/kg) :"}
+                          </Text>
+                          <View style={[styles.inlinePriceInputRow, darkMode && styles.inlinePriceInputRowDark]}>
+                            <TextInput
+                              style={[styles.inlinePriceInput, darkMode && styles.textWhite]}
+                              value={customNegotiatePrice}
+                              onChangeText={(v) => setCustomNegotiatePrice(v.replace(/[^0-9.]/g, ""))}
+                              placeholder="ex: 30"
+                              placeholderTextColor="#9CA3AF"
+                              keyboardType="decimal-pad"
+                            />
+                            <Text style={styles.inlineCurrencyBadge}>$/kg</Text>
+                          </View>
+                          <Text style={styles.inlineNegotiateNote}>
+                            {language === "ar"
+                              ? "💡 بالضغط على الزر أدناه، سيتم إرسال اقتراحك للمسافر لتأكيده."
+                              : "💡 En cliquant ci-dessous, votre offre sera transmise au voyageur pour accord."}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </View>
               );
             })()}
@@ -1170,6 +1400,19 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={[styles.modalSubmitBtn, bookingLoading && { opacity: 0.6 }]}
               onPress={async () => {
+                if (bookedOfferIds.includes(selectedOfferForBooking.id)) {
+                  Alert.alert(
+                    language === "ar" ? "تنبيه" : language === "fr" ? "Attention" : "Notice",
+                    language === "ar"
+                      ? "لقد قمت بحجز هذا العرض مسبقاً ⚠️\nيمكنك متابعة حالة طلبك في تبويب 'حجوزاتي'."
+                      : language === "fr"
+                        ? "Vous avez déjà réservé cette offre ⚠️\nRetrouvez et suivez l'état de votre réservation dans l'onglet 'Mes réservations'."
+                        : "You have already booked this offer ⚠️\nYou can track its status in the 'Bookings' tab."
+                  );
+                  setSelectedOfferForBooking(null);
+                  return;
+                }
+
                 if (
                   selectedOfferForBooking.userId &&
                   user?.id &&
@@ -1244,6 +1487,81 @@ export default function HomeScreen() {
                   }
                 }
 
+                // If user entered a custom negotiated price, send the proposal to the traveler!
+                if (customNegotiatePrice.trim() && !isNegotiatedAccepted) {
+                  const p = parseFloat(customNegotiatePrice);
+                  if (!p || isNaN(p) || p <= 0) {
+                    Alert.alert(
+                      language === "ar" ? "تنبيه" : "Attention",
+                      language === "ar" ? "يرجى إدخال مبلغ صحيح." : "Veuillez entrer un montant valide."
+                    );
+                    return;
+                  }
+                  setBookingLoading(true);
+                  try {
+                    const w = parseFloat(bookingWeight);
+                    const propRes = await priceProposalApi.createProposal({
+                      receiverId: selectedOfferForBooking.userId || selectedOfferForBooking.user?.id,
+                      proposedPrice: p,
+                      weightKg: !isNaN(w) && w > 0 ? w : undefined,
+                      currency: "$",
+                      offerId: selectedOfferForBooking.id,
+                      deliveryMethod: isTunisiaFlight ? bookingDeliveryMethod : null,
+                      deliveryContactName: isTunisiaFlight && bookingContactName.trim() ? bookingContactName.trim() : null,
+                      deliveryContactPhone: isTunisiaFlight && bookingContactPhone.trim() ? bookingContactPhone.trim() : null,
+                      deliveryFee: isTunisiaFlight && bookingDeliveryFee ? parseFloat(bookingDeliveryFee) : null,
+                      deliveryPaymentMethod: isTunisiaFlight && bookingDeliveryMethod ? bookingPaymentMethod : null,
+                      deliveryAddress: isTunisiaFlight && bookingDeliveryAddress.trim() ? bookingDeliveryAddress.trim() : null,
+                    });
+                    if (propRes.data?.success && propRes.data.data) {
+                      const propId = propRes.data.data.id;
+                      if (bookingDeliveryMethod || bookingContactName.trim()) {
+                        try {
+                          await AsyncStorage.setItem(
+                            `pending_delivery_${propId}`,
+                            JSON.stringify({
+                              deliveryMethod: bookingDeliveryMethod,
+                              deliveryContactName: bookingContactName.trim(),
+                              deliveryContactPhone: bookingContactPhone.trim(),
+                              deliveryFee: bookingDeliveryFee ? parseFloat(bookingDeliveryFee) : null,
+                              deliveryPaymentMethod: bookingPaymentMethod,
+                              deliveryAddress: bookingDeliveryAddress.trim() || null,
+                            })
+                          );
+                        } catch (e) {
+                          console.warn("Could not cache delivery info:", e);
+                        }
+                      }
+
+                      // Close modal and reset all fields cleanly
+                      setSelectedOfferForBooking(null);
+                      setBookingWeight("");
+                      setCustomNegotiatePrice("");
+                      setShowNegotiateInput(false);
+                      setActiveProposalForBooking(null);
+                      setBookingDeliveryMethod(null);
+                      setBookingContactName("");
+                      setBookingContactPhone("");
+                      setBookingDeliveryFee("");
+                      setBookingDeliveryAddress("");
+                      setBookingDeliveryErrors({});
+
+                      Alert.alert(
+                        language === "ar" ? "تم إرسال طلب التفاوض 🚀" : "Demande de négociation envoyée 🚀",
+                        language === "ar"
+                          ? `تم إرسال اقتراحك (${p} $/kg) إلى المسافر بنجاح.\n\nيمكنك متابعة حالة طلبك في تبويب "حجوزاتي".`
+                          : `Votre proposition de prix (${p} $/kg) a été envoyée au voyageur avec succès.\n\nRetrouvez et suivez l'état de votre demande dans l'onglet "Mes réservations".`
+                      );
+                    }
+                  } catch (err: any) {
+                    const msg = err?.response?.data?.message || err?.message || "Erreur";
+                    Alert.alert(language === "ar" ? "خطأ" : "Erreur", msg);
+                  } finally {
+                    setBookingLoading(false);
+                  }
+                  return;
+                }
+
                 setBookingLoading(true);
                 const offerId = selectedOfferForBooking.id;
 
@@ -1251,13 +1569,15 @@ export default function HomeScreen() {
                   const res = await bookingApi.createBooking({
                     offerId,
                     weightKg: w,
+                    acceptedProposalId:
+                      activeProposalForBooking?.status === "ACCEPTED" ? activeProposalForBooking.id : null,
                     deliveryMethod: isTunisiaFlight ? bookingDeliveryMethod : null,
                     deliveryContactName:
-                      isTunisiaFlight && bookingDeliveryMethod === "FAMILY"
+                      isTunisiaFlight && bookingContactName.trim()
                         ? bookingContactName.trim()
                         : null,
                     deliveryContactPhone:
-                      isTunisiaFlight && bookingDeliveryMethod === "FAMILY"
+                      isTunisiaFlight && bookingContactPhone.trim()
                         ? bookingContactPhone.trim()
                         : null,
                     deliveryFee:
@@ -1282,6 +1602,7 @@ export default function HomeScreen() {
                     const bookingId = bookingData?.id;
 
                     setSelectedOfferForBooking(null);
+                    setBookedOfferIds((prev) => (prev.includes(offerId) ? prev : [...prev, offerId]));
 
                     if (approvalUrl) {
                       // Open PayPal in secure in-app browser
@@ -1294,7 +1615,7 @@ export default function HomeScreen() {
                         try {
                           const confirmRes = await bookingApi.confirmPayment(bookingId);
                           if (confirmRes.data?.success) {
-                            setBookedOfferIds((prev) => [...prev, offerId]);
+                            setBookedOfferIds((prev) => (prev.includes(offerId) ? prev : [...prev, offerId]));
                             fetchLiveData();
                             Alert.alert(
                               language === "ar"
@@ -1323,30 +1644,18 @@ export default function HomeScreen() {
                           );
                         }
                       } else {
-                        // On Android, if payment completed, the custom tab might dismiss as the deep link opens.
-                        // Check booking status first before blindly cancelling!
-                        try {
-                          const checkRes = await bookingApi.getBooking(bookingId);
-                          const bk = checkRes.data?.data;
-                          if (bk && (bk.paymentStatus === "AUTHORIZED" || bk.paymentStatus === "HELD")) {
-                            setBookedOfferIds((prev) => [...prev, offerId]);
-                            fetchLiveData();
-                            return;
-                          }
-                          // User cancelled without completing payment
-                          await bookingApi.cancelBooking(bookingId);
-                        } catch (cancelErr) {
-                          console.log("Notice: auto-cancelled unpaid booking on PayPal abort:", cancelErr);
-                        }
+                        // User closed or dismissed the browser window
+                        // Keep the booking request recorded as booked!
+                        setBookedOfferIds((prev) => (prev.includes(offerId) ? prev : [...prev, offerId]));
                         fetchLiveData();
 
                         Alert.alert(
-                          language === "ar" ? "تم إلغاء الدفع" : language === "fr" ? "Paiement annulé" : "Payment Cancelled",
+                          language === "ar" ? "تم تسجيل الحجز ✈️" : language === "fr" ? "Réservation enregistrée ✈️" : "Booking Request Sent ✈️",
                           language === "ar"
-                            ? "تم إلغاء عملية الدفع عبر PayPal ولم يتم تأكيد الحجز."
+                            ? "تم تسجيل طلب حجزك بنجاح! يمكنك متابعة تفاصيل الحجز والدفع في تبويب 'حجوزاتي'."
                             : language === "fr"
-                            ? "Vous avez annulé le paiement PayPal. La réservation n'a pas été effectuée."
-                            : "PayPal checkout was cancelled. The booking was not completed."
+                            ? "Votre demande de réservation a été enregistrée avec succès ! Vous pouvez la retrouver dans 'Mes réservations'."
+                            : "Your booking request was recorded! You can track its details in 'My Bookings'."
                         );
                       }
                     } else {
@@ -1393,6 +1702,16 @@ export default function HomeScreen() {
                         : language === "fr"
                           ? "Cette offre n'est plus active ⚠️"
                           : "This offer is no longer active ⚠️";
+                  } else if (
+                    typeof rawErr === "string" &&
+                    (rawErr.includes("already booked") || rawErr.includes("already have a booking"))
+                  ) {
+                    friendlyMsg =
+                      language === "ar"
+                        ? "لقد قمت بحجز هذا العرض مسبقاً ⚠️\nيمكنك متابعة حالة طلبك في تبويب 'حجوزاتي'."
+                        : language === "fr"
+                          ? "Vous avez déjà réservé cette offre ⚠️\nRetrouvez et suivez l'état de votre réservation dans l'onglet 'Mes réservations'."
+                          : "You have already booked this offer ⚠️\nYou can track its status in the 'Bookings' tab.";
                   }
 
                   Alert.alert(
@@ -1408,7 +1727,15 @@ export default function HomeScreen() {
             >
               <CheckCircle2 size={16} color="#FFFFFF" />
               <Text style={styles.modalSubmitBtnText}>
-                {t("confirmBookingButton", language) || "Confirm & Send Booking Request"}
+                {customNegotiatePrice.trim()
+                  ? (language === "ar"
+                      ? `إرسال اقتراح السعر (${customNegotiatePrice} $/kg) 🚀`
+                      : `Envoyer l'offre (${customNegotiatePrice} $/kg) 🚀`)
+                  : activeProposalForBooking?.status === "ACCEPTED"
+                  ? (language === "ar"
+                      ? `تأكيد ودفع السعر المتفق عليه 🔒`
+                      : `Payer au tarif négocié 🔒`)
+                  : (t("confirmBookingButton", language) || "Confirm & Send Booking Request")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1475,7 +1802,79 @@ export default function HomeScreen() {
                   })()}
                 </Text>
               </View>
+
+              {/* Prominent Target Date requested by parcel sender */}
+              <View style={[styles.targetDateBanner, { backgroundColor: primaryColor + "12", borderColor: primaryColor + "30" }]}>
+                <Calendar size={18} color={primaryColor} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.targetDateBannerLabel, { color: darkMode ? "#93C5FD" : "#1D4ED8" }]}>
+                    {language === "ar" ? "📅 التاريخ المطلوب من صاحب الطرد:" : "📅 Date souhaitée par l'expéditeur :"}
+                  </Text>
+                  <Text style={[styles.targetDateBannerValue, { color: darkMode ? "#FFFFFF" : "#1E293B" }]}>
+                    {selectedDemandForProposal.date || (selectedDemandForProposal as any).targetDate || "Flexible"}
+                  </Text>
+                </View>
+              </View>
             </View>
+
+            {/* Price Proposal & Weight Capacity Form */}
+            <View style={styles.proposalInputRow}>
+              {/* Proposed Price per kg */}
+              <View style={{ flex: 1.1 }}>
+                <Text style={[styles.modalInputLabel, darkMode && styles.textWhite]}>
+                  💰 {language === "ar" ? "سعرك المقترح ($/كغ) *" : "Tarif proposé ($/kg) *"}
+                </Text>
+                <TextInput
+                  style={[
+                    styles.modalInput,
+                    darkMode && styles.modalInputDark,
+                    { borderColor: primaryColor + "60", marginTop: 4 },
+                  ]}
+                  placeholder={selectedDemandForProposal.reward ? `${selectedDemandForProposal.reward}` : "10"}
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="numeric"
+                  value={proposalPrice}
+                  onChangeText={(t) => setProposalPrice(cleanNumberInput(t))}
+                />
+              </View>
+
+              {/* Weight capacity traveler can carry */}
+              <View style={{ flex: 0.9 }}>
+                <Text style={[styles.modalInputLabel, darkMode && styles.textWhite]}>
+                  ⚖️ {language === "ar" ? "الوزن المحمول (كغ) *" : "Capacité (kg) *"}
+                </Text>
+                <TextInput
+                  style={[
+                    styles.modalInput,
+                    darkMode && styles.modalInputDark,
+                    { borderColor: primaryColor + "60", marginTop: 4 },
+                  ]}
+                  placeholder={selectedDemandForProposal.weightKg ? `${selectedDemandForProposal.weightKg}` : "1"}
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="numeric"
+                  value={proposalWeightKg}
+                  onChangeText={(t) => setProposalWeightKg(cleanNumberInput(t))}
+                />
+              </View>
+            </View>
+
+            {/* Estimated Subtotal Hint */}
+            {(() => {
+              const p = parseFloat(proposalPrice) || 0;
+              const w = parseFloat(proposalWeightKg) || 0;
+              if (p > 0 && w > 0) {
+                return (
+                  <View style={[styles.estimatedBox, { backgroundColor: darkMode ? "#064E3B30" : "#F0FDF4", borderColor: darkMode ? "#065F46" : "#BBF7D0" }]}>
+                    <Text style={{ fontSize: 12, color: darkMode ? "#34D399" : "#166534", fontWeight: "700" }}>
+                      {language === "ar"
+                        ? `المجموع التقديري لمكافأتك: ${w} كغ × ${p} $ = ${(w * p).toFixed(2)} $`
+                        : `Total estimé pour ce colis : ${w} kg × ${p} $ = ${(w * p).toFixed(2)} $`}
+                    </Text>
+                  </View>
+                );
+              }
+              return null;
+            })()}
 
             {/* Flight Departure & Arrival Schedule Form */}
             <Text style={[styles.proposalFormHeaderTitle, darkMode && styles.textWhite]}>
@@ -1559,6 +1958,8 @@ export default function HomeScreen() {
                     flightTime: proposalDepTime,
                     arrivalDate: proposalArrDate ? proposalArrDate.toISOString() : undefined,
                     arrivalTime: proposalArrTime,
+                    proposedPrice: proposalPrice.trim() ? `${cleanNumberInput(proposalPrice)}` : undefined,
+                    weightKg: proposalWeightKg.trim() ? parseFloat(cleanNumberInput(proposalWeightKg)) : undefined,
                     notes: proposalNotes?.trim() || undefined,
                   });
 
@@ -1595,6 +1996,24 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         </BottomSheetModal>
+      )}
+
+      {/* Price Negotiation Modal (Axis 3) */}
+      {selectedOfferForBooking && (
+        <PriceProposalModal
+          visible={isNegotiateModalVisible}
+          onClose={() => setIsNegotiateModalVisible(false)}
+          receiverId={selectedOfferForBooking.userId || selectedOfferForBooking.user?.id}
+          receiverName={selectedOfferForBooking.userName || selectedOfferForBooking.user?.name || "le voyageur"}
+          offerId={selectedOfferForBooking.id}
+          currency={getOfferPriceDetails(selectedOfferForBooking).currency || "USD"}
+          currentStandardPrice={
+            (parseFloat(bookingWeight) || 0) * (getOfferPriceDetails(selectedOfferForBooking).rate || 0)
+          }
+          onProposalSent={(newProp) => {
+            setActiveProposalForBooking(newProp);
+          }}
+        />
       )}
     </SafeAreaView>
   );
@@ -2282,10 +2701,71 @@ const styles = StyleSheet.create({
     backgroundColor: "#334155",
     borderColor: "#475569",
   },
+  bookBtnBooked: {
+    backgroundColor: "#10B981",
+    borderWidth: 1,
+    borderColor: "#059669",
+  },
+  bookBtnBookedDark: {
+    backgroundColor: "#059669",
+    borderWidth: 1,
+    borderColor: "#047857",
+  },
   bookBtnText: {
     color: "#FFFFFF",
     fontSize: 11.5,
     fontWeight: "700",
+  },
+  cardBooked: {
+    borderColor: "#A7F3D0",
+    backgroundColor: "#F0FDF4",
+  },
+  cardBookedDark: {
+    borderColor: "#065F46",
+    backgroundColor: "#062E24",
+  },
+  bookedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  bookedBannerDark: {
+    backgroundColor: "#064E3B",
+    borderColor: "#047857",
+  },
+  bookedBannerText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#065F46",
+  },
+  bookedBannerTextDark: {
+    color: "#A7F3D0",
+  },
+  capacityPillDark: {
+    backgroundColor: "#1E293B",
+  },
+  capacityPillBooked: {
+    backgroundColor: "#DCFCE7",
+    borderWidth: 1,
+    borderColor: "#86EFAC",
+  },
+  capacityPillBookedDark: {
+    backgroundColor: "#064E3B",
+    borderWidth: 1,
+    borderColor: "#059669",
+  },
+  capacityPillTextBooked: {
+    color: "#059669",
+  },
+  capacityPillTextBookedDark: {
+    color: "#34D399",
   },
 
   // Modal Inside Styles
@@ -2455,4 +2935,148 @@ const styles = StyleSheet.create({
   textWhite: { color: "#FFFFFF" },
   textMuted: { color: "#64748B" },
   textMutedDark: { color: "#94A3B8" },
+
+  // Price Negotiation Badges & Buttons (Axis 3)
+  negotiationAcceptedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+  negotiationAcceptedText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#059669",
+    flex: 1,
+  },
+  negotiationPendingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+  negotiationPendingText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#D97706",
+    flex: 1,
+  },
+  negotiateTriggerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#EEF2FF",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#E0E7FF",
+  },
+  negotiateTriggerBtnDark: {
+    backgroundColor: "#1E1B4B",
+    borderColor: "#312E81",
+  },
+  // Inline Negotiation Box Styles
+  inlineNegotiateCard: {
+    backgroundColor: "#EEF2FF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E0E7FF",
+    padding: 10,
+    marginTop: 8,
+  },
+  inlineNegotiateCardDark: {
+    backgroundColor: "#1E1B4B",
+    borderColor: "#312E81",
+  },
+  inlineNegotiateToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  inlineNegotiateTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4338CA",
+  },
+  inlineNegotiateBody: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(99, 102, 241, 0.15)",
+  },
+  inlineNegotiateHint: {
+    fontSize: 11,
+    color: "#6366F1",
+    marginBottom: 6,
+  },
+  inlinePriceInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    paddingHorizontal: 10,
+    height: 40,
+  },
+  inlinePriceInputRowDark: {
+    backgroundColor: "#0F172A",
+    borderColor: "#334155",
+  },
+  inlinePriceInput: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  inlineCurrencyBadge: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  inlineNegotiateNote: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 5,
+  },
+  targetDateBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  targetDateBannerLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  targetDateBannerValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 1,
+  },
+  proposalInputRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 8,
+  },
+  estimatedBox: {
+    padding: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
 });

@@ -21,6 +21,9 @@ export interface DemandItem {
   deliveryStatus?: string | null;
   senderAction?: "COMPLETED" | "CANCELLED" | null;
   travelerAction?: "COMPLETED" | "CANCELLED" | null;
+  isPriceProposal?: boolean;
+  isCounterOffer?: boolean;
+  counterpartId?: string;
   createdAt?: string;
 }
 
@@ -48,6 +51,8 @@ export interface OfferItem {
   createdAt?: string;
   createdTime?: string;
   createdTimestamp?: number;
+  bookingCount?: number;
+  pendingBookingCount?: number;
   demands: DemandItem[];
 }
 
@@ -155,6 +160,7 @@ export interface MyPackageRequest {
   deliveryPaymentMethod?: "CASH" | "CLICTOPAY" | null;
   deliveryAddress?: string | null;
   proposals?: TravelerProposal[];
+  proposalCount?: number;
 }
 
 export interface NotificationItem {
@@ -243,7 +249,7 @@ export const REAL_MOCK_OFFERS: OfferItem[] = [
     destinationTime: "18:45",
     totalKg: 20,
     capacity: "14.0 kg available",
-    pricePerKg: "QR 35 / kg",
+    pricePerKg: "$35 / kg",
     status: "Active",
     createdAt: "16 Aug 2026",
     createdTime: "11:00",
@@ -1065,7 +1071,7 @@ export interface MyApplicationItem {
   myArrivalTime?: string;
   myRequestedWeight?: string;
   myProposedPrice?: string;
-  status: "pending" | "accepted" | "rejected" | "in_transit" | "delivered" | "completed" | "cancelled" | "disputed";
+  status: "pending" | "accepted" | "rejected" | "in_transit" | "delivered" | "completed" | "cancelled" | "disputed" | string;
   bookingStatus?: string;
   paymentStatus?: string;
   totalPrice?: number;
@@ -1081,6 +1087,15 @@ export interface MyApplicationItem {
   travelerAction?: "COMPLETED" | "CANCELLED" | null;
   appliedAt?: string;
   submittedAt?: string;
+  isPriceProposal?: boolean;
+  proposalData?: any;
+  destinationDate?: string | null;
+  destinationTime?: string | null;
+  departureTime?: string | null;
+  originalPricePerKg?: string;
+  remainingKg?: number | string;
+  totalKg?: number | string;
+  requestedWeightKg?: number | string;
 }
 
 export const MOCK_MY_APPLICATIONS: MyApplicationItem[] = [

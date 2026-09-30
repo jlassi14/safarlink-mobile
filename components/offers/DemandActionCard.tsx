@@ -56,6 +56,10 @@ export default function DemandActionCard({
   const isRejected = demand.status === "rejected" || demand.status === "cancelled";
   const isPending = demand.status === "pending";
 
+  const payStatus = demand.paymentStatus?.toUpperCase();
+  const isPaymentSecured = payStatus === "HELD" || payStatus === "AUTHORIZED";
+  const isWaitingSenderPayment = !demand.isPriceProposal && isPending && !isPaymentSecured;
+
   const getStatusBadge = () => {
     if (isCompleted) {
       return {
@@ -64,6 +68,15 @@ export default function DemandActionCard({
         border: "#A7F3D0",
         dot: "#10B981",
         label: language === "ar" ? "مكتمل ✅" : language === "fr" ? "Terminé ✅" : "Completed ✅",
+      };
+    }
+    if (demand.isPriceProposal && isAccepted) {
+      return {
+        bg: "#EFF6FF",
+        text: "#2563EB",
+        border: "#BFDBFE",
+        dot: "#3B82F6",
+        label: language === "ar" ? "سعر متفق عليه 🤝" : language === "fr" ? "Prix convenu 🤝" : "Price Agreed 🤝",
       };
     }
     if (isAccepted) {
@@ -102,6 +115,46 @@ export default function DemandActionCard({
         label: language === "ar" ? "ملغى ✗" : language === "fr" ? "Refusé ✗" : "Declined ✗",
       };
     }
+    if (demand.isPriceProposal) {
+      if (demand.isCounterOffer && isPending) {
+        return {
+          bg: "#EFF6FF",
+          text: "#2563EB",
+          border: "#BFDBFE",
+          dot: "#3B82F6",
+          label: language === "ar" ? "اقتراح مضاد مرسل 💬" : language === "fr" ? "Contre-offre envoyée 💬" : "Counter-offer sent 💬",
+        };
+      }
+      if (isPending) {
+        return {
+          bg: "#FEF3C7",
+          text: "#B45309",
+          border: "#FDE68A",
+          dot: "#F59E0B",
+          label: language === "ar" ? "عرض سعر مستلم 💬" : language === "fr" ? "Offre reçue 💬" : "Offer received 💬",
+        };
+      }
+    }
+    // Booking pending payment from sender
+    if (isWaitingSenderPayment) {
+      return {
+        bg: "#FFFBEB",
+        text: "#D97706",
+        border: "#FDE68A",
+        dot: "#F59E0B",
+        label: language === "ar" ? "في انتظار الدفع 💳" : language === "fr" ? "Paiement en attente 💳" : "Payment Pending 💳",
+      };
+    }
+    // Booking pending traveler confirmation (payment is already held in escrow)
+    if (isPending && isPaymentSecured) {
+      return {
+        bg: "#EFF6FF",
+        text: "#2563EB",
+        border: "#BFDBFE",
+        dot: "#3B82F6",
+        label: language === "ar" ? "في انتظار قرارك ⏳" : language === "fr" ? "À confirmer ⏳" : "To Confirm ⏳",
+      };
+    }
     return {
       bg: "#FFFBEB",
       text: "#D97706",
@@ -112,7 +165,6 @@ export default function DemandActionCard({
   };
 
   const statusConfig = getStatusBadge();
-  const payStatus = demand.paymentStatus?.toUpperCase();
 
   const senderName = demand.senderName || "Expéditeur";
   const senderAvatar = demand.senderAvatar || MOCK_DEFAULT_AVATAR;
@@ -289,7 +341,9 @@ export default function DemandActionCard({
             <>
               <Lock size={12} color="#16A34A" />
               <Text style={styles.escrowHeldText}>
-                {language === "ar" ? "أموال الضمان مؤمنة" : "Fonds Sécurisés Escrow"}
+                {isPending
+                  ? (language === "ar" ? "أموال الضمان مؤمنة • بانتظار قرارك" : "Fonds Sécurisés • À confirmer")
+                  : (language === "ar" ? "أموال الضمان مؤمنة" : "Fonds Sécurisés Escrow")}
               </Text>
             </>
           ) : payStatus === "RELEASED" ? (
@@ -299,6 +353,25 @@ export default function DemandActionCard({
                 {language === "ar" ? "تم استلام الأرباح" : "Gains Transférés"}
               </Text>
             </>
+          ) : isWaitingSenderPayment ? (
+            <>
+              <Clock size={12} color="#D97706" />
+              <Text style={styles.escrowPendingText}>
+                {language === "ar"
+                  ? "في انتظار دفع المرسل (Escrow)"
+                  : language === "fr"
+                  ? "En attente du paiement de l'expéditeur"
+                  : "Waiting for sender payment"}
+              </Text>
+            </>
+          ) : demand.isPriceProposal ? (
+            <Text style={styles.escrowPendingText}>
+              {demand.status === "accepted"
+                ? (language === "ar" ? "في انتظار إتمام الحجز والدفع" : "En attente de réservation et paiement")
+                : demand.isCounterOffer
+                ? (language === "ar" ? "في انتظار رد العميل" : "En attente du client")
+                : (language === "ar" ? "في انتظار قرارك" : "En attente de votre réponse")}
+            </Text>
           ) : isPending ? (
             <Text style={styles.escrowPendingText}>
               {language === "ar" ? "في انتظار قرارك" : "En attente de votre réponse"}

@@ -1,13 +1,12 @@
 import React from "react";
-import { View, Text, Platform, TouchableOpacity } from "react-native";
-import { Weight, DollarSign, Calendar, ChevronDown } from "lucide-react-native";
+import { View, Text, Platform } from "react-native";
+import { Weight, DollarSign, Calendar, Info } from "lucide-react-native";
 import Input from "@/components/Input";
 import DatePickerInput from "@/components/DatePickerInput";
 import TimePickerInput from "@/components/TimePickerInput";
 import { t } from "@/lib/i18n";
 import { useAppStore } from "@/lib/store";
 import { colors } from "@/lib/theme";
-import { CURRENCIES_LIST, CurrencyOption } from "@/lib/constants";
 import { createStyles as s } from "./createStyles";
 
 interface CreateOfferFormProps {
@@ -23,8 +22,8 @@ interface CreateOfferFormProps {
   setOfferKg: (v: string) => void;
   priceKg: string;
   setPriceKg: (v: string) => void;
-  currency: string;
-  onOpenCurrencyModal: () => void;
+  currency?: string;
+  onOpenCurrencyModal?: () => void;
   onFocusInput: () => void;
   errors: Record<string, string | undefined>;
   clearError: (field: string) => void;
@@ -51,10 +50,6 @@ export const CreateOfferForm: React.FC<CreateOfferFormProps> = ({
 }) => {
   const { language, darkMode } = useAppStore();
   const primaryColor = colors.primary || "#2563EB";
-
-  const currencyObj =
-    CURRENCIES_LIST.find((c) => c.code.toUpperCase() === currency.toUpperCase()) ||
-    CURRENCIES_LIST[0];
 
   const numOnly = (str: string) => {
     const c = str.replace(/[^0-9.]/g, "");
@@ -152,18 +147,6 @@ export const CreateOfferForm: React.FC<CreateOfferFormProps> = ({
             <Text style={[s.cardLabel, darkMode && s.tW]}>⚖️ {t("baggagePricing", language)}</Text>
           </View>
 
-          {/* Dedicated Currency Selector Badge in Card Header */}
-          <TouchableOpacity
-            style={[s.currencyBadge, darkMode && s.currencyBadgeDk]}
-            onPress={onOpenCurrencyModal}
-            activeOpacity={0.7}
-          >
-            <Text style={s.currencyBadgeFlag}>{currencyObj.flag}</Text>
-            <Text style={[s.currencyBadgeText, darkMode && s.currencyBadgeTextDk]}>
-              {currencyObj.code}
-            </Text>
-            <ChevronDown size={12} color={darkMode ? "#60A5FA" : "#2563EB"} />
-          </TouchableOpacity>
         </View>
 
         <View style={s.responsiveRow}>
@@ -188,7 +171,7 @@ export const CreateOfferForm: React.FC<CreateOfferFormProps> = ({
               leftElement={
                 <View style={[s.currencyPrefixBox, darkMode && s.currencyPrefixBoxDk]}>
                   <Text style={[s.currencyPrefixText, darkMode && s.currencyPrefixTextDk]}>
-                    {currencyObj.symbol}
+                    $
                   </Text>
                 </View>
               }
@@ -205,6 +188,36 @@ export const CreateOfferForm: React.FC<CreateOfferFormProps> = ({
               error={errors.price}
             />
           </View>
+        </View>
+
+        {/* Currency Info Note */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            backgroundColor: darkMode ? "#1E293B" : "#F0F9FF",
+            borderWidth: 1,
+            borderColor: darkMode ? "#334155" : "#BAE6FD",
+            paddingHorizontal: 12,
+            paddingVertical: 9,
+            borderRadius: 10,
+            marginTop: 10,
+          }}
+        >
+          <Info size={15} color="#0284C7" />
+          <Text
+            style={{
+              fontSize: 12,
+              color: darkMode ? "#94A3B8" : "#0369A1",
+              fontWeight: "500",
+              flex: 1,
+            }}
+          >
+            {language === "ar"
+              ? "جميع الأسعار والمعاملات على المنصة تُحسب بالدولار الأمريكي ($ USD)."
+              : "Tous les tarifs et transactions sur SafarLink sont traités en Dollar américain ($ USD)."}
+          </Text>
         </View>
       </View>
     </>

@@ -144,6 +144,31 @@ export const ProposalItem: React.FC<ProposalItemProps> = ({
             </Text>
           </View>
         )}
+
+        {isRejected && (
+          <View style={[styles.rejectedPill, { backgroundColor: "#FEF2F2", borderColor: "#FECACA" }]}>
+            <Text style={{ fontSize: 11, color: "#DC2626", fontWeight: "700" }}>
+              {isArabic ? "مرفوض ✗" : "Refusé ✗"}
+            </Text>
+          </View>
+        )}
+
+        {isCancelled && (
+          <View style={[styles.rejectedPill, { backgroundColor: "#F1F5F9", borderColor: "#CBD5E1" }]}>
+            <Text style={{ fontSize: 11, color: "#64748B", fontWeight: "700" }}>
+              {isArabic ? "ملغى ✗" : "Annulé ✗"}
+            </Text>
+          </View>
+        )}
+
+        {isPending && (
+          <View style={[styles.acceptedPill, { backgroundColor: "#FFFBEB", borderColor: "#FDE68A" }]}>
+            <Clock size={11} color="#D97706" />
+            <Text style={{ fontSize: 11, color: "#D97706", fontWeight: "700" }}>
+              {isArabic ? "قيد الانتظار ⏳" : "En attente ⏳"}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Boarding Pass Timing Box */}
@@ -204,7 +229,7 @@ export const ProposalItem: React.FC<ProposalItemProps> = ({
             bookingStatus={proposal.status}
             paymentStatus={(proposal as any).paymentStatus || "HELD"}
             totalPrice={demand?.reward}
-            currency={demand?.currency || "QAR"}
+            currency={demand?.currency || "USD"}
             onActionSubmitted={() => {
               if (demandId) {
                 router.push(`/(app)/request/${demandId}`);

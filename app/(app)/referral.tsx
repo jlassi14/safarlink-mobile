@@ -283,7 +283,7 @@ export default function ReferralScreen() {
             </Text>
             <View style={styles.balanceRow}>
               <Text style={styles.balanceAmount}>{stats.walletBalance.toFixed(2)}</Text>
-              <Text style={styles.currencyTag}>QAR</Text>
+              <Text style={styles.currencyTag}>$</Text>
             </View>
 
             <View style={styles.heroFooter}>
@@ -291,7 +291,7 @@ export default function ReferralScreen() {
                 <Text style={styles.footerStatLabel}>
                   {language === "ar" ? "إجمالي الأرباح" : language === "fr" ? "Total gagné" : "Total Earned"}
                 </Text>
-                <Text style={styles.footerStatVal}>{stats.totalEarned.toFixed(2)} QAR</Text>
+                <Text style={styles.footerStatVal}>{stats.totalEarned.toFixed(2)} $</Text>
               </View>
               <View style={styles.footerDivider} />
               <View style={{ flex: 1 }}>
@@ -467,7 +467,7 @@ export default function ReferralScreen() {
                     </View>
 
                     <View style={{ alignItems: "flex-end" }}>
-                      <Text style={styles.amountText}>+{reward.amount.toFixed(2)} QAR</Text>
+                      <Text style={styles.amountText}>+{reward.amount.toFixed(2)} $</Text>
                       <View
                         style={[
                           styles.badge,

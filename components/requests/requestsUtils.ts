@@ -78,7 +78,7 @@ export const getStatusColor = (st: string, lang: Language) => {
         text: "#DC2626",
         border: "#FECACA",
         dot: "#EF4444",
-        label: t("statusRejectedBadge", lang),
+        label: lang === "ar" ? "مرفوض ✗" : lang === "fr" ? "Refusé ✗" : "Declined ✗",
       };
     default:
       return {
@@ -86,7 +86,7 @@ export const getStatusColor = (st: string, lang: Language) => {
         text: "#2563EB",
         border: "#BFDBFE",
         dot: "#3B82F6",
-        label: t("statusInProgressBadge", lang),
+        label: lang === "ar" ? "قيد التنفيذ ⏳" : lang === "fr" ? "En attente ⏳" : "Active ⏳",
       };
   }
 };
@@ -99,7 +99,7 @@ export const getApplicationStatusColor = (st: string, lang: Language) => {
         text: "#059669",
         border: "#A7F3D0",
         dot: "#10B981",
-        label: t("statusAcceptedProposal", lang),
+        label: lang === "ar" ? "مقبول 🔒" : lang === "fr" ? "Accepté 🔒" : "Accepted 🔒",
       };
     case "delivered":
       return {
@@ -107,7 +107,7 @@ export const getApplicationStatusColor = (st: string, lang: Language) => {
         text: "#0D9488",
         border: "#99F6E4",
         dot: "#14B8A6",
-        label: lang === "ar" ? "تم التسليم (بانتظار التأكيد)" : lang === "fr" ? "Livré (En attente confirmation)" : "Delivered (Awaiting Confirmation)",
+        label: lang === "ar" ? "تم التسليم 📦" : lang === "fr" ? "Livré 📦" : "Delivered 📦",
       };
     case "completed":
       return {
@@ -115,7 +115,7 @@ export const getApplicationStatusColor = (st: string, lang: Language) => {
         text: "#059669",
         border: "#A7F3D0",
         dot: "#10B981",
-        label: lang === "ar" ? "مكتمل & تحرير المبلغ 💰" : lang === "fr" ? "Complété & Payé 💰" : "Completed & Released 💰",
+        label: lang === "ar" ? "مكتمل ✅" : lang === "fr" ? "Terminé ✅" : "Completed ✅",
       };
     case "disputed":
       return {
@@ -127,11 +127,11 @@ export const getApplicationStatusColor = (st: string, lang: Language) => {
       };
     case "cancelled":
       return {
-        bg: "#F1F5F9",
-        text: "#64748B",
-        border: "#CBD5E1",
-        dot: "#94A3B8",
-        label: lang === "ar" ? "ملغي" : lang === "fr" ? "Annulé" : "Cancelled",
+        bg: "#FEF2F2",
+        text: "#DC2626",
+        border: "#FECACA",
+        dot: "#EF4444",
+        label: lang === "ar" ? "ملغى ✗" : lang === "fr" ? "Annulé ✗" : "Cancelled ✗",
       };
     case "rejected":
       return {
@@ -139,7 +139,7 @@ export const getApplicationStatusColor = (st: string, lang: Language) => {
         text: "#DC2626",
         border: "#FECACA",
         dot: "#EF4444",
-        label: t("statusDeclinedProposal", lang),
+        label: lang === "ar" ? "مرفوض ✗" : lang === "fr" ? "Refusé ✗" : "Declined ✗",
       };
     default:
       return {
@@ -147,7 +147,7 @@ export const getApplicationStatusColor = (st: string, lang: Language) => {
         text: "#D97706",
         border: "#FDE68A",
         dot: "#F59E0B",
-        label: t("statusPendingProposal", lang),
+        label: lang === "ar" ? "قيد الانتظار ⏳" : lang === "fr" ? "En attente ⏳" : "Pending ⏳",
       };
   }
 };

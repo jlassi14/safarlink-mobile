@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
 import { colors } from "@/lib/theme";
@@ -27,19 +27,30 @@ import {
   MyApplicationItem,
   MOCK_DEFAULT_AVATAR,
 } from "@/lib/mockData";
-import { offerApi, bookingApi } from "@/lib/api";
+import { offerApi, bookingApi, priceProposalApi } from "@/lib/api";
 
 type ModeTab = "my_offers" | "my_bookings";
 type AppFilterTab = "all" | "pending" | "accepted" | "rejected";
 
 export default function OffersScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string; tab?: string }>();
   const insets = useSafeAreaInsets();
-  const { language, darkMode } = useAppStore();
+  const { language, darkMode, user } = useAppStore();
   const primaryColor = colors.primary || "#2563EB";
 
   // Segment Tab (My Offers vs My Bookings)
   const [currentMode, setCurrentMode] = useState<ModeTab>("my_offers");
+
+  useFocusEffect(
+    useCallback(() => {
+      if (params.mode === "my_bookings" || params.tab === "bookings" || params.tab === "my_bookings") {
+        setCurrentMode("my_bookings");
+      } else if (params.mode === "my_offers" || params.tab === "offers" || params.tab === "my_offers") {
+        setCurrentMode("my_offers");
+      }
+    }, [params.mode, params.tab])
+  );
 
   // Offers Data
   const [myOffersList, setMyOffersList] = useState<OfferItem[]>([]);
@@ -57,9 +68,20 @@ export default function OffersScreen() {
 
   const fetchMyOffers = useCallback(async () => {
     try {
-      const res = await offerApi.getMyOffers();
-      if (res.data?.success && Array.isArray(res.data.data)) {
-        const mapped: OfferItem[] = res.data.data.map((o: any) => {
+      const [offersRes, proposalsRes] = await Promise.allSettled([
+        offerApi.getMyOffers(),
+        priceProposalApi.getProposals(),
+      ]);
+
+      const allProposals =
+        proposalsRes.status === "fulfilled" &&
+        proposalsRes.value.data?.success &&
+        Array.isArray(proposalsRes.value.data.data)
+          ? proposalsRes.value.data.data
+          : [];
+
+      if (offersRes.status === "fulfilled" && offersRes.value.data?.success && Array.isArray(offersRes.value.data.data)) {
+        const mapped: OfferItem[] = offersRes.value.data.data.map((o: any) => {
           const rawDepDate = o.departureDate ? new Date(o.departureDate) : new Date();
           const formattedDepDate = isNaN(rawDepDate.getTime())
             ? String(o.departureDate || "")
@@ -81,6 +103,42 @@ export default function OffersScreen() {
           const totalKgNum = Number(o.totalKg) || 0;
           const remainingKgNum = Number(o.remainingKg ?? o.totalKg) || 0;
 
+          const rawBookings: any[] = Array.isArray(o.bookings) ? o.bookings : [];
+          const activeBookings = rawBookings.filter(
+            (b: any) => b.status !== "CANCELLED" && b.status !== "REJECTED"
+          );
+          const pendingBookings = rawBookings.filter((b: any) => b.status === "PENDING");
+
+          const mappedBookings: any[] = rawBookings.map((b: any) => ({
+            id: b.id,
+            status: b.status.toLowerCase(),
+            paymentStatus: b.paymentStatus,
+            weightKg: b.weightKg || 1,
+            reward: `${b.totalPrice} $`,
+            senderName: b.sender?.name || "Expéditeur",
+            senderAvatar: b.sender?.avatar || MOCK_DEFAULT_AVATAR,
+            senderRating: b.sender?.averageRating || 5.0,
+            isPriceProposal: false,
+          }));
+
+          // Attach price proposal demands on this offer (excluding users who already booked)
+          const bookedSenderIds = new Set(
+            rawBookings.map((b: any) => b.senderId || b.sender?.id).filter(Boolean)
+          );
+          const offerProposals = allProposals.filter(
+            (p: any) => p.offerId === o.id && !bookedSenderIds.has(p.senderId)
+          );
+          const mappedDemands: any[] = offerProposals.map((p: any) => ({
+            id: p.id,
+            status: p.status === "PENDING" ? "pending" : p.status === "ACCEPTED" ? "accepted" : "rejected",
+            weightKg: p.weightKg || 1,
+            reward: `${(p.proposedPrice * (p.weightKg || 1)).toFixed(1)} $`,
+            senderName: p.sender?.name || "Expéditeur",
+            senderAvatar: p.sender?.avatar || MOCK_DEFAULT_AVATAR,
+            senderRating: p.sender?.averageRating || 5.0,
+            isPriceProposal: true,
+          }));
+
           return {
             id: o.id,
             from: o.from,
@@ -93,11 +151,13 @@ export default function OffersScreen() {
             totalKg: totalKgNum,
             remainingKg: remainingKgNum,
             capacity: `${remainingKgNum.toFixed(1)} kg available`,
-            pricePerKg: `${o.currency || "QAR"} ${o.pricePerKg} / kg`,
+            pricePerKg: `${o.pricePerKg} $/kg`,
             status: o.status === "ACTIVE" ? "Active" : o.status === "FULL" ? "Fully Booked" : o.status,
             createdAt: o.createdAt ? new Date(o.createdAt).toLocaleDateString() : undefined,
             createdTimestamp: o.createdAt ? new Date(o.createdAt).getTime() : undefined,
-            demands: [],
+            bookingCount: o.bookingCount !== undefined ? o.bookingCount : activeBookings.length,
+            pendingBookingCount: o.pendingBookingCount !== undefined ? o.pendingBookingCount : pendingBookings.length,
+            demands: [...mappedBookings, ...mappedDemands],
           };
         });
         setMyOffersList(mapped);
@@ -109,19 +169,46 @@ export default function OffersScreen() {
 
   const fetchMyBookings = useCallback(async () => {
     try {
-      const res = await bookingApi.getMyBookings();
-      if (res.data?.success && Array.isArray(res.data.data)) {
-        const mapped: MyApplicationItem[] = res.data.data.map((b: any) => {
-          const rawDate = b.offer?.departureDate ? new Date(b.offer.departureDate) : new Date(b.createdAt);
-          const formattedDate = isNaN(rawDate.getTime())
+      const [bookingsRes, proposalsRes] = await Promise.allSettled([
+        bookingApi.getMyBookings(),
+        priceProposalApi.getProposals(),
+      ]);
+
+      const mapped: MyApplicationItem[] = [];
+      const acceptedProposalIds = new Set<string>();
+      const bookedOfferIds = new Set<string>();
+
+      if (
+        bookingsRes.status === "fulfilled" &&
+        bookingsRes.value.data?.success &&
+        Array.isArray(bookingsRes.value.data.data)
+      ) {
+        bookingsRes.value.data.data.forEach((b: any) => {
+          if (b.acceptedProposalId) {
+            acceptedProposalIds.add(b.acceptedProposalId);
+          }
+          if (b.offerId && b.status !== "CANCELLED") {
+            bookedOfferIds.add(b.offerId);
+          }
+          const rawDepartureDate = b.offer?.departureDate ? new Date(b.offer.departureDate) : new Date(b.createdAt);
+          const formattedDepartureDate = isNaN(rawDepartureDate.getTime())
             ? String(b.offer?.departureDate || "")
-            : rawDate.toLocaleDateString("en-US", {
+            : rawDepartureDate.toLocaleDateString("en-US", {
                 day: "numeric",
                 month: "short",
                 year: "numeric",
               });
 
-          return {
+          const rawDestinationDate = b.offer?.destinationDate ? new Date(b.offer.destinationDate) : null;
+          const formattedDestinationDate = rawDestinationDate && !isNaN(rawDestinationDate.getTime())
+            ? rawDestinationDate.toLocaleDateString("en-US", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })
+            : null;
+
+          mapped.push({
             id: b.id,
             targetPostId: b.offerId,
             type: "flight_booking",
@@ -130,13 +217,20 @@ export default function OffersScreen() {
             creatorAvatar: b.offer?.user?.avatar || MOCK_DEFAULT_AVATAR,
             creatorRating: b.offer?.user?.rating || 4.9,
             myRequestedWeight: `${b.weightKg} kg`,
-            myProposedPrice: `${b.totalPrice} ${b.currency}`,
+            requestedWeightKg: b.weightKg,
+            myProposedPrice: `${b.totalPrice} $`,
             totalPrice: b.totalPrice,
-            currency: b.currency,
+            currency: "$",
             status: b.status.toLowerCase(),
             bookingStatus: b.status,
             paymentStatus: b.paymentStatus,
-            myFlightDate: formattedDate,
+            myFlightDate: formattedDepartureDate,
+            departureTime: b.offer?.departureTime,
+            destinationDate: formattedDestinationDate,
+            destinationTime: b.offer?.destinationTime,
+            originalPricePerKg: b.offer?.pricePerKg ? `${b.offer.pricePerKg} $/kg` : undefined,
+            remainingKg: b.offer?.remainingKg ?? b.offer?.totalKg,
+            totalKg: b.offer?.totalKg,
             from: b.offer?.from,
             to: b.offer?.to,
             submittedAt: new Date(b.createdAt).toLocaleDateString(),
@@ -149,14 +243,116 @@ export default function OffersScreen() {
             deliveryStatus: b.deliveryStatus || null,
             senderAction: b.senderAction || null,
             travelerAction: b.travelerAction || null,
-          };
+          });
         });
-        setBookingsList(mapped);
       }
+
+      // Add Price Proposals (sent by user or counter-offers received by user on flight offers)
+      // Group by offerId so only ONE card appears per flight offer negotiation thread!
+      if (
+        proposalsRes.status === "fulfilled" &&
+        proposalsRes.value.data?.success &&
+        Array.isArray(proposalsRes.value.data.data)
+      ) {
+        const proposalsByOfferId = new Map<string, any[]>();
+
+        proposalsRes.value.data.data.forEach((p: any) => {
+          if (!p.offerId) return;
+          // If there is already an active booking for this flight, skip proposals
+          if (bookedOfferIds.has(p.offerId) || acceptedProposalIds.has(p.id)) return;
+
+          // If the logged-in user is the traveler who published this flight offer,
+          // this is an incoming proposal for their flight. It belongs in "My Offers" -> Details,
+          // NOT in "My Bookings"!
+          if (user?.id && p.offer?.userId === user.id) return;
+
+          const isSender = user?.id && p.senderId === user.id;
+          const isReceiver = user?.id && p.receiverId === user.id;
+          if (!isSender && !isReceiver) return;
+
+          if (!proposalsByOfferId.has(p.offerId)) {
+            proposalsByOfferId.set(p.offerId, []);
+          }
+          proposalsByOfferId.get(p.offerId)!.push(p);
+        });
+
+        proposalsByOfferId.forEach((props) => {
+          // Sort by createdAt descending (newest first)
+          props.sort(
+            (a: any, b: any) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          // Active pending proposal takes precedence, else the most recent proposal
+          const p = props.find((item: any) => item.status === "PENDING") || props[0];
+
+          const isReceiver = user?.id && p.receiverId === user.id;
+          const isCounterOfferForMe = isReceiver;
+          const otherUser = isReceiver ? p.sender : p.receiver;
+
+          const rawDepartureDate = p.offer?.departureDate ? new Date(p.offer.departureDate) : new Date(p.createdAt);
+          const formattedDepartureDate = isNaN(rawDepartureDate.getTime())
+            ? String(p.offer?.departureDate || "")
+            : rawDepartureDate.toLocaleDateString("en-US", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              });
+
+          const rawDestinationDate = p.offer?.destinationDate ? new Date(p.offer.destinationDate) : null;
+          const formattedDestinationDate = rawDestinationDate && !isNaN(rawDestinationDate.getTime())
+            ? rawDestinationDate.toLocaleDateString("en-US", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })
+            : null;
+
+          const reqWeight = p.weightKg || (p.demand?.weightKg ? p.demand.weightKg : null);
+
+          mapped.unshift({
+            id: p.id,
+            targetPostId: p.offerId,
+            type: "flight_booking",
+            targetTitle: `${p.offer?.from || "Origine"} → ${p.offer?.to || "Destination"}`,
+            creatorName: otherUser?.name || "Voyageur",
+            creatorAvatar: otherUser?.avatar || MOCK_DEFAULT_AVATAR,
+            creatorRating: otherUser?.averageRating || 5.0,
+            myRequestedWeight: reqWeight ? `${reqWeight} kg` : "Négociation",
+            requestedWeightKg: reqWeight,
+            myProposedPrice: `${p.proposedPrice} $/kg`,
+            totalPrice: p.proposedPrice,
+            currency: "$",
+            status: p.status === "PENDING" ? "pending" : p.status === "ACCEPTED" ? "accepted" : "rejected",
+            bookingStatus:
+              p.status === "PENDING"
+                ? isCounterOfferForMe
+                  ? "COUNTER_OFFER_RECEIVED"
+                  : "PROPOSAL_PENDING"
+                : p.status === "ACCEPTED"
+                ? "PROPOSAL_ACCEPTED"
+                : "PROPOSAL_REJECTED",
+            paymentStatus: "PENDING",
+            myFlightDate: formattedDepartureDate,
+            departureTime: p.offer?.departureTime,
+            destinationDate: formattedDestinationDate,
+            destinationTime: p.offer?.destinationTime,
+            originalPricePerKg: p.offer?.pricePerKg ? `${p.offer.pricePerKg} $/kg` : undefined,
+            remainingKg: p.offer?.remainingKg ?? p.offer?.totalKg,
+            totalKg: p.offer?.totalKg,
+            from: p.offer?.from,
+            to: p.offer?.to,
+            submittedAt: new Date(p.createdAt).toLocaleDateString(),
+            isPriceProposal: true,
+            proposalData: p,
+          });
+        });
+      }
+
+      setBookingsList(mapped);
     } catch (e) {
       console.error("Error fetching my bookings:", e);
     }
-  }, []);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -186,10 +382,25 @@ export default function OffersScreen() {
   };
 
   const handleNavigateBooking = (bookingId: string) => {
-    router.push({
-      pathname: "/(app)/booking-details" as any,
-      params: { id: bookingId },
-    });
+    const found = bookingsList.find((b) => b.id === bookingId);
+    try {
+      router.push({
+        pathname: "/(app)/booking-details" as any,
+        params: {
+          id: bookingId,
+          type: found?.isPriceProposal ? "proposal" : "booking",
+        },
+      });
+    } catch (e) {
+      console.warn("[offers.tsx] Navigation fallback to /booking-details:", e);
+      router.push({
+        pathname: "/booking-details" as any,
+        params: {
+          id: bookingId,
+          type: found?.isPriceProposal ? "proposal" : "booking",
+        },
+      });
+    }
   };
 
   const handleDeleteOffer = (offer: OfferItem) => {

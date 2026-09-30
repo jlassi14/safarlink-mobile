@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   ScrollView,
   Platform,
+  Alert,
 } from "react-native";
 import {
   ShieldCheck,
@@ -52,10 +53,15 @@ export default function AcceptProposalPaymentModal({
 
   if (!proposal || !demand) return null;
 
-  const rewardAmount = demand.reward || 0;
-  const currency = demand.currency || "QAR";
-  const deliveryFee = demand.deliveryFee || 0;
-  const totalAmount = rewardAmount + deliveryFee;
+  const parsedProposed = parseFloat(String(proposal.proposedPrice || "").replace(/[^0-9.]/g, ""));
+  const ratePerKg = !isNaN(parsedProposed) && parsedProposed > 0 
+    ? parsedProposed 
+    : (Number(demand.reward) || 0);
+  const weightKg = Number(proposal.weightKg || demand.weightKg) || 1;
+  const transportSubtotal = Number((ratePerKg * weightKg).toFixed(2));
+  const currency = demand.currency || "USD";
+  const deliveryFee = Number(demand.deliveryFee) || 0;
+  const totalAmount = Number((transportSubtotal + deliveryFee).toFixed(2));
 
   const handleConfirmAccept = async () => {
     setLoading(true);
@@ -67,15 +73,24 @@ export default function AcceptProposalPaymentModal({
       });
 
       if (res.data?.success && res.data.data) {
+        Alert.alert(
+          isArabic ? "تم تأمين الدفع بنجاح! 🔒" : "Paiement sécurisé en Escrow ! 🔒",
+          isArabic
+            ? "المبلغ الآن محجوز في حساب الضمان (In Hold) حتى استلام شحنتك وتأكيد الاستلام."
+            : "Les fonds sont désormais bloqués sous séquestre SafarLink (In Hold) jusqu'à la remise du colis."
+        );
         onSuccess(res.data.data);
         onClose();
       } else {
-        alert(res.data?.message || "Erreur lors de l'acceptation");
+        Alert.alert(
+          isArabic ? "خطأ" : "Erreur",
+          res.data?.message || "Erreur lors de l'acceptation"
+        );
       }
     } catch (err: any) {
       const errMsg =
         err?.response?.data?.message || err?.message || "Erreur de paiement";
-      alert(errMsg);
+      Alert.alert(isArabic ? "خطأ" : "Erreur", errMsg);
     } finally {
       setLoading(false);
     }
@@ -225,9 +240,10 @@ export default function AcceptProposalPaymentModal({
                 darkMode && styles.sectionCardDark,
               ]}
             >
+              {/* Unit Price per kg */}
               <View style={styles.priceRow}>
                 <Text style={styles.priceLabel}>
-                  {isArabic ? "مكافأة النقل المتفق عليها" : "Récompense de transport"}
+                  {isArabic ? "سعر الكيلوغرام المتفق عليه" : "Tarif unitaire (par kg)"}
                 </Text>
                 <Text
                   style={[
@@ -235,7 +251,37 @@ export default function AcceptProposalPaymentModal({
                     darkMode ? styles.textDark : styles.textLight,
                   ]}
                 >
-                  {currency} {rewardAmount}
+                  {currency} {ratePerKg} / kg
+                </Text>
+              </View>
+
+              {/* Package Weight */}
+              <View style={styles.priceRow}>
+                <Text style={styles.priceLabel}>
+                  {isArabic ? "وزن الشحنة" : "Poids du colis"}
+                </Text>
+                <Text
+                  style={[
+                    styles.priceValue,
+                    darkMode ? styles.textDark : styles.textLight,
+                  ]}
+                >
+                  {weightKg} kg
+                </Text>
+              </View>
+
+              {/* Transport Subtotal Calculation */}
+              <View style={styles.priceRow}>
+                <Text style={styles.priceLabel}>
+                  {isArabic ? "مكافأة النقل (الوزن × السعر)" : "Sous-total transport"}
+                </Text>
+                <Text
+                  style={[
+                    styles.priceValue,
+                    darkMode ? styles.textDark : styles.textLight,
+                  ]}
+                >
+                  {weightKg} × {ratePerKg} = {currency} {transportSubtotal}
                 </Text>
               </View>
 
@@ -250,7 +296,7 @@ export default function AcceptProposalPaymentModal({
                       darkMode ? styles.textDark : styles.textLight,
                     ]}
                   >
-                    {currency} {deliveryFee}
+                    +{currency} {deliveryFee}
                   </Text>
                 </View>
               )}
@@ -259,7 +305,7 @@ export default function AcceptProposalPaymentModal({
 
               <View style={styles.priceRow}>
                 <Text style={styles.totalLabel}>
-                  {isArabic ? "المجموع الكلي للحجز" : "Total à sécuriser"}
+                  {isArabic ? "المجموع الكلي للحجز (In Hold)" : "Total à sécuriser (In Hold)"}
                 </Text>
                 <Text style={[styles.totalValue, { color: primaryColor }]}>
                   {currency} {totalAmount}

@@ -52,8 +52,8 @@ export default function MyOfferItemCard({
   const bookedPercent = totalKg > 0 ? Math.min(100, (bookedKg / totalKg) * 100) : 0;
   const isFullyBooked = remainingKg <= 0 || (totalKg > 0 && bookedKg >= totalKg);
   const hasAccepted = bookedKg > 0;
-  const pendingCount = item.demands ? item.demands.filter((d) => d.status === "pending").length : 0;
-  const acceptedCount = item.demands ? item.demands.filter((d) => ["accepted", "in_transit", "delivered", "completed"].includes(d.status)).length : 0;
+  const realBookings = item.demands ? item.demands.filter((d) => !d.isPriceProposal && d.status !== "cancelled" && d.status !== "rejected") : [];
+  const bookingCount = item.bookingCount !== undefined ? item.bookingCount : realBookings.length;
 
   const renderLocation = (loc: string, isRight: boolean = false) => {
     if (!loc) return null;
@@ -268,16 +268,35 @@ export default function MyOfferItemCard({
       >
         <View style={styles.demandsBadgeGroup}>
           <Package size={15} color={primaryColor} />
-          <Text style={[styles.demandsFooterText, { color: primaryColor }]}>
+          <Text
+            style={[styles.demandsFooterText, { color: primaryColor }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {t("receivedDemandsSummary", language)}
           </Text>
-          {pendingCount > 0 && (
-            <View style={styles.pendingBadge}>
-              <Text style={styles.pendingBadgeText}>{pendingCount}</Text>
-            </View>
-          )}
         </View>
-        <ChevronRight size={16} color="#94A3B8" />
+
+        <View style={styles.demandsRightGroup}>
+          <View
+            style={[
+              styles.bookingCountBadge,
+              bookingCount > 0
+                ? { backgroundColor: primaryColor, borderColor: primaryColor }
+                : { backgroundColor: darkMode ? "#334155" : "#E2E8F0", borderColor: darkMode ? "#475569" : "#CBD5E1" },
+            ]}
+          >
+            <Text
+              style={[
+                styles.bookingCountBadgeText,
+                { color: bookingCount > 0 ? "#FFFFFF" : (darkMode ? "#94A3B8" : "#64748B") },
+              ]}
+            >
+              {bookingCount}
+            </Text>
+          </View>
+          <ChevronRight size={16} color="#94A3B8" />
+        </View>
       </TouchableOpacity>
     </View>
   );
@@ -575,23 +594,34 @@ const styles = StyleSheet.create({
     backgroundColor: "#1E293B",
   },
   demandsBadgeGroup: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    marginRight: 8,
   },
   demandsFooterText: {
     fontSize: 12.5,
     fontWeight: "700",
+    flexShrink: 1,
   },
-  pendingBadge: {
-    backgroundColor: "#EF4444",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 8,
+  demandsRightGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
   },
-  pendingBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
+  bookingCountBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    minWidth: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bookingCountBadgeText: {
+    fontSize: 11,
     fontWeight: "800",
   },
   textDark: {

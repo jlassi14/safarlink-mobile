@@ -82,6 +82,52 @@ export const requestsStyles = StyleSheet.create({
   receptionDateSubtext: { fontSize: 11, color: "#64748B", fontWeight: "500" },
   receptionDateSubtextDark: { color: "#94A3B8" },
 
+  // Demands Footer & Badges (Matches Offers Flow)
+  demandsFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  demandsFooterDark: {
+    backgroundColor: "#1E293B",
+  },
+  demandsBadgeGroup: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginRight: 8,
+  },
+  demandsFooterText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    flexShrink: 1,
+  },
+  demandsRightGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+  bookingCountBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    minWidth: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bookingCountBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+
   // Proposals Accordion & Banner
   deliveryOffersBanner: {
     flexDirection: "row",

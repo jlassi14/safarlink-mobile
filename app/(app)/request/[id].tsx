@@ -35,12 +35,14 @@ import {
   Copy,
   Check,
   ChevronRight,
+  Coins,
 } from "lucide-react-native";
 import { demandApi, proposalApi, BackendProposalItem } from "@/lib/api";
 import { MOCK_DEFAULT_AVATAR } from "@/lib/constants";
 import TunisiaDeliveryDetailsCard from "@/components/TunisiaDeliveryDetailsCard";
 import MutualResolutionSection from "@/components/offers/MutualResolutionSection";
 import AcceptProposalPaymentModal from "@/components/requests/AcceptProposalPaymentModal";
+import PriceProposalModal from "@/components/offers/PriceProposalModal";
 import { RouteCorridor } from "@/components/requests/RouteCorridor";
 
 type ProposalFilter = "all" | "pending" | "accepted" | "rejected";
@@ -54,8 +56,14 @@ export default function RequestDetailsScreen() {
   const fromParam = params.from;
 
   const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
     if (fromParam === "notifications") {
       router.replace("/(app)/(tabs)/notifications");
+    } else if (fromParam === "offers") {
+      router.replace("/(app)/(tabs)/offers");
     } else if (fromParam === "home") {
       router.replace("/(app)/(tabs)/home");
     } else {
@@ -90,6 +98,15 @@ export default function RequestDetailsScreen() {
   // Payment Modal State for Accepting Proposals
   const [selectedProposalForPayment, setSelectedProposalForPayment] = useState<BackendProposalItem | null>(null);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+
+  // Negotiation Modal State for Counter-offers
+  const [selectedProposalForNegotiate, setSelectedProposalForNegotiate] = useState<any | null>(null);
+  const [negotiateModalVisible, setNegotiateModalVisible] = useState(false);
+
+  const handleOpenNegotiate = (proposal: any) => {
+    setSelectedProposalForNegotiate(proposal);
+    setNegotiateModalVisible(true);
+  };
 
   const fetchDemand = useCallback(async () => {
     if (!demandId) {
@@ -144,7 +161,7 @@ export default function RequestDetailsScreen() {
     if (!demand) return;
     try {
       await Share.share({
-        message: `SafarLink Demande #${demand.id} - ${demand.from} ➔ ${demand.to} (${demand.weightKg} kg - ${demand.currency || "QAR"} ${demand.reward})`,
+        message: `SafarLink Demande #${demand.id} - ${demand.from} ➔ ${demand.to} (${demand.weightKg} kg - ${demand.reward} $)`,
       });
     } catch (e) {
       // ignore
@@ -273,6 +290,19 @@ export default function RequestDetailsScreen() {
       })
     : "Récemment";
 
+  // Financial calculation breakdown (Rate is PER KG)
+  const weightVal = Number(demand.weightKg) || 1;
+  const standardRatePerKg = Number(demand.reward) || 0;
+  const acceptedRatePerKg = (() => {
+    if (!acceptedProposal?.proposedPrice) return standardRatePerKg;
+    const p = parseFloat(String(acceptedProposal.proposedPrice).replace(/[^0-9.]/g, ""));
+    return !isNaN(p) && p > 0 ? p : standardRatePerKg;
+  })();
+  const activeRatePerKg = acceptedProposal ? acceptedRatePerKg : standardRatePerKg;
+  const transportSubtotal = Number((weightVal * activeRatePerKg).toFixed(2));
+  const localDeliveryFee = Number(demand.deliveryFee) || 0;
+  const totalFinancialAmount = Number((transportSubtotal + localDeliveryFee).toFixed(2));
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]} edges={["top"]}>
       {/* ── TOP HEADER ── */}
@@ -346,8 +376,8 @@ export default function RequestDetailsScreen() {
                 travelerAction={acceptedProposal.travelerAction}
                 bookingStatus={acceptedProposal.status}
                 paymentStatus={acceptedProposal.paymentStatus || "HELD"}
-                totalPrice={demand.reward}
-                currency={demand.currency || "QAR"}
+                totalPrice={totalFinancialAmount}
+                currency={demand.currency || "USD"}
                 onActionSubmitted={() => {
                   fetchDemand();
                 }}
@@ -408,19 +438,82 @@ export default function RequestDetailsScreen() {
           ) : null}
         </View>
 
-        {/* ── 3. FINANCIAL SUMMARY & REWARD ── */}
+        {/* ── 3. FINANCIAL SUMMARY & REWARD (DETAILED BREAKDOWN) ── */}
         <View style={[styles.card, { backgroundColor: cardBgColor, borderColor }]}>
-          <Text style={[styles.cardSectionTitle, { color: textColor }]}>
-            {language === "ar" ? "المكافأة المقترحة" : "Rémunération du voyageur"}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Coins size={18} color={primaryColor} />
+              <Text style={[styles.cardSectionTitle, { color: textColor, marginBottom: 0 }]}>
+                {language === "ar" ? "تفاصيل المكافأة والحساب" : "Détails de la rémunération"}
+              </Text>
+            </View>
+            <View style={[styles.perKgBadge, { backgroundColor: primaryColor + "15", borderColor: primaryColor + "30" }]}>
+              <Text style={[styles.perKgBadgeText, { color: primaryColor }]}>
+                {activeRatePerKg} $ / kg
+              </Text>
+            </View>
+          </View>
 
-          <View style={styles.priceRow}>
-            <Text style={[styles.priceLabel, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
-              {language === "ar" ? "مكافأة النقل والتسليم" : "Montant garanti"}
-            </Text>
-            <Text style={[styles.priceValue, { color: primaryColor }]}>
-              {demand.currency || "QAR"} {demand.reward}
-            </Text>
+          {/* Breakdown Rows */}
+          <View style={styles.breakdownBox}>
+            {/* Unit Price per kg */}
+            <View style={styles.breakdownRow}>
+              <Text style={[styles.breakdownLabel, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+                {language === "ar" ? "السعر لكل كيلوغرام:" : "Tarif unitaire (par kg) :"}
+              </Text>
+              <Text style={[styles.breakdownValue, { color: textColor }]}>
+                {activeRatePerKg} $ / kg
+              </Text>
+            </View>
+
+            {/* Package Weight */}
+            <View style={styles.breakdownRow}>
+              <Text style={[styles.breakdownLabel, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+                {language === "ar" ? "وزن الطرد:" : "Poids du colis :"}
+              </Text>
+              <Text style={[styles.breakdownValue, { color: textColor }]}>
+                {weightVal} kg
+              </Text>
+            </View>
+
+            {/* Transport Subtotal Calculation */}
+            <View style={styles.breakdownRow}>
+              <Text style={[styles.breakdownLabel, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+                {language === "ar" ? "مكافأة النقل (الوزن × السعر):" : "Sous-total transport :"}
+              </Text>
+              <Text style={[styles.breakdownValue, { color: textColor, fontWeight: "600" }]}>
+                {weightVal} kg × {activeRatePerKg} $ = {transportSubtotal} $
+              </Text>
+            </View>
+
+            {/* Tunisia Domestic Delivery Fee if applicable */}
+            {localDeliveryFee > 0 && (
+              <View style={styles.breakdownRow}>
+                <Text style={[styles.breakdownLabel, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+                  {language === "ar" ? "رسوم التوصيل الداخلي (تونس):" : "Livraison locale (Tunisie) :"}
+                </Text>
+                <Text style={[styles.breakdownValue, { color: textColor }]}>
+                  +{localDeliveryFee} $
+                </Text>
+              </View>
+            )}
+
+            <View style={[styles.breakdownDivider, { backgroundColor: borderColor }]} />
+
+            {/* Total Guaranteed in Escrow */}
+            <View style={styles.breakdownRowTotal}>
+              <View>
+                <Text style={[styles.totalRowLabel, { color: textColor }]}>
+                  {language === "ar" ? "المجموع الكلي المضمون:" : "Total garanti :"}
+                </Text>
+                <Text style={[styles.totalRowSubtext, { color: darkMode ? "#94A3B8" : "#64748B" }]}>
+                  {language === "ar" ? "محجوز تحت حساب الضمان (In Hold)" : "Fonds sécurisés sous séquestre"}
+                </Text>
+              </View>
+              <Text style={[styles.totalRowValue, { color: "#10B981" }]}>
+                {totalFinancialAmount} $
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -453,7 +546,12 @@ export default function RequestDetailsScreen() {
             </View>
             <View style={[styles.countBadge, { backgroundColor: primaryColor + "15" }]}>
               <Text style={[styles.countBadgeText, { color: primaryColor }]}>
-                {proposals.length}
+                {
+                  proposals.filter((p) => {
+                    const st = (p.status || "pending").toLowerCase();
+                    return st !== "cancelled" && st !== "rejected";
+                  }).length
+                }
               </Text>
             </View>
           </View>
@@ -614,7 +712,42 @@ export default function RequestDetailsScreen() {
                       </View>
                     ) : null}
 
-                    {/* Action Buttons: Accept / Reject when pending */}
+                    {/* Proposed Price Highlight */}
+                    <View
+                      style={[
+                        styles.proposedPriceTagRow,
+                        {
+                          backgroundColor: darkMode ? "#1E293B" : "#F0FDF4",
+                          borderColor: darkMode ? "#334155" : "#BBF7D0",
+                        },
+                      ]}
+                    >
+                      <Coins size={14} color="#10B981" />
+                      <Text
+                        style={[
+                          styles.proposedPriceTagLabel,
+                          { color: darkMode ? "#94A3B8" : "#475569" },
+                        ]}
+                      >
+                        {language === "ar" ? "السعر المقترح للتوصيل:" : "Tarif proposé :"}
+                      </Text>
+                      <Text style={[styles.proposedPriceTagValue, { color: "#059669" }]}>
+                        {p.proposedPrice && p.proposedPrice !== "Free"
+                          ? `${p.proposedPrice} $/kg`
+                          : (language === "ar" ? "مجاني" : "Gratuit")}
+                      </Text>
+
+                      {p.weightKg ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+                          <Package size={12} color="#059669" />
+                          <Text style={{ fontSize: 12, fontWeight: "700", color: "#059669" }}>
+                            {p.weightKg} kg
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    {/* Action Buttons: Accept / Negotiate / Reject when pending */}
                     {isPropPending && isSender ? (
                       <View style={styles.propActionsRow}>
                         <TouchableOpacity
@@ -625,6 +758,17 @@ export default function RequestDetailsScreen() {
                           <ShieldCheck size={14} color="#FFFFFF" strokeWidth={2.5} />
                           <Text style={styles.acceptBtnMainText}>
                             {language === "ar" ? "قبول وتأمين الدفع 🔒" : "Accepter & Payer 🔒"}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.negotiateBtnSmall}
+                          onPress={() => handleOpenNegotiate(p)}
+                          activeOpacity={0.85}
+                        >
+                          <Coins size={14} color="#0284C7" />
+                          <Text style={styles.negotiateBtnSmallText}>
+                            {language === "ar" ? "تفاوض" : "Négocier"}
                           </Text>
                         </TouchableOpacity>
 
@@ -640,6 +784,26 @@ export default function RequestDetailsScreen() {
                         </TouchableOpacity>
                       </View>
                     ) : null}
+
+                    {/* Escrow In-Hold Guarantee Badge if Accepted */}
+                    {isPropAccepted && (
+                      <View
+                        style={[
+                          styles.inHoldBadgeBox,
+                          {
+                            backgroundColor: darkMode ? "#064E3B30" : "#ECFDF5",
+                            borderColor: darkMode ? "#065F46" : "#A7F3D0",
+                          },
+                        ]}
+                      >
+                        <ShieldCheck size={16} color="#059669" />
+                        <Text style={[styles.inHoldBadgeText, { color: "#059669" }]}>
+                          {language === "ar"
+                            ? "🔒 الدفع محجوز في الضمان (In Hold) — في انتظار إتمام التوصيل"
+                            : "🔒 Fonds bloqués sous séquestre (In Hold) — en attente de livraison"}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 );
               })}
@@ -666,6 +830,28 @@ export default function RequestDetailsScreen() {
           onClose={() => setPaymentModalVisible(false)}
           onSuccess={() => {
             setPaymentModalVisible(false);
+            fetchDemand();
+          }}
+        />
+      )}
+
+      {/* ── NEGOTIATE / PRICE COUNTER-OFFER MODAL ── */}
+      {selectedProposalForNegotiate && (
+        <PriceProposalModal
+          visible={negotiateModalVisible}
+          onClose={() => {
+            setNegotiateModalVisible(false);
+            setSelectedProposalForNegotiate(null);
+          }}
+          receiverId={selectedProposalForNegotiate.travelerId}
+          receiverName={selectedProposalForNegotiate.traveler?.name || "le voyageur"}
+          demandId={demand.id}
+          currentStandardPrice={(() => {
+            const parsed = parseFloat(String(selectedProposalForNegotiate.proposedPrice || "").replace(/[^0-9.]/g, ""));
+            return !isNaN(parsed) && parsed > 0 ? parsed : (demand.reward || 0);
+          })()}
+          currency="$"
+          onProposalSent={() => {
             fetchDemand();
           }}
         />
@@ -819,6 +1005,54 @@ const styles = StyleSheet.create({
   priceValue: {
     fontSize: 20,
     fontWeight: "800",
+  },
+  breakdownBox: {
+    gap: 8,
+  },
+  breakdownRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  breakdownLabel: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  breakdownValue: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  breakdownDivider: {
+    height: 1,
+    marginVertical: 6,
+  },
+  breakdownRowTotal: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 4,
+  },
+  totalRowLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  totalRowSubtext: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  totalRowValue: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  perKgBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  perKgBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   sectionTitleRow: {
     flexDirection: "row",
@@ -1011,6 +1245,56 @@ const styles = StyleSheet.create({
     color: "#DC2626",
     fontSize: 12,
     fontWeight: "700",
+  },
+  negotiateBtnSmall: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#BAE6FD",
+    backgroundColor: "#F0F9FF",
+  },
+  negotiateBtnSmallText: {
+    color: "#0284C7",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  proposedPriceTagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  proposedPriceTagLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  proposedPriceTagValue: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  inHoldBadgeBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 6,
+  },
+  inHoldBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    flex: 1,
   },
   chatBtnSmall: {
     flexDirection: "row",

@@ -47,7 +47,12 @@ export const DemandCard: React.FC<DemandCardProps> = ({
   };
 
   const weightText = getCleanWeight(demand.weight || `${demand.weightKg || "1.0"} kg`);
-  const rewardText = demand.proposedPrice || demand.reward || "QR 100";
+  const rewardFormatted = React.useMemo(() => {
+    const raw = String(demand.proposedPrice || demand.reward || "10").trim();
+    if (raw.toLowerCase().includes("/kg")) return raw;
+    const cleanNum = raw.replace(/[^0-9.]/g, "");
+    return cleanNum ? `${cleanNum} $/kg` : `${raw} $/kg`;
+  }, [demand.proposedPrice, demand.reward]);
   const dateText = React.useMemo(() => {
     const raw = demand.createdAt || demand.date;
     if (!raw) return "Today";
@@ -78,7 +83,8 @@ export const DemandCard: React.FC<DemandCardProps> = ({
     }
   };
 
-  const statusInfo = getStatusColor(status);
+  const demandStatus = String(demand?.status || "pending").toLowerCase();
+  const statusInfo = getStatusColor(demandStatus);
 
   const receivePrefix =
     language === "ar"
@@ -159,11 +165,14 @@ export const DemandCard: React.FC<DemandCardProps> = ({
         </View>
       ) : null}
 
-      {/* Specs Footer: Spaced across Left (Weight) and Right (Action Button) */}
+      {/* Specs Footer: Spaced across Left (Weight & Reward/kg) and Right (Action Button) */}
       <View style={styles.footerRow}>
         <View style={styles.specGroup}>
           <View style={styles.weightBadge}>
             <Text style={[styles.weightText, { color: primaryColor }]}>{weightText}</Text>
+          </View>
+          <View style={[styles.rewardBadge, darkMode && { backgroundColor: "#D9770620" }]}>
+            <Text style={[styles.rewardText, darkMode && { color: "#FBBF24" }]}>{rewardFormatted}</Text>
           </View>
         </View>
 
@@ -205,7 +214,7 @@ export const DemandCard: React.FC<DemandCardProps> = ({
       {/* Optional In-Card Decision Actions */}
       {showActions ? (
         <View style={styles.actionButtonsRow}>
-          {status === "pending" && onAccept && onReject ? (
+          {demandStatus === "pending" && onAccept && onReject ? (
             <>
               <TouchableOpacity style={[styles.acceptBtn, { backgroundColor: primaryColor }]} onPress={onAccept}>
                 <Text style={styles.acceptBtnText}>{t("accept", language)}</Text>
@@ -214,7 +223,7 @@ export const DemandCard: React.FC<DemandCardProps> = ({
                 <Text style={styles.rejectBtnText}>{t("reject", language)}</Text>
               </TouchableOpacity>
             </>
-          ) : status === "accepted" && onRevoke ? (
+          ) : demandStatus === "accepted" && onRevoke ? (
             <TouchableOpacity style={styles.revokeBtn} onPress={onRevoke}>
               <Text style={styles.revokeBtnText}>{t("revokeAcceptance", language)}</Text>
             </TouchableOpacity>

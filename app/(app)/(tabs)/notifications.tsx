@@ -35,6 +35,7 @@ import {
 import { useRouter, useFocusEffect } from "expo-router";
 import {
   notificationApi,
+  priceProposalApi,
   BackendNotificationItem,
   NotificationType,
 } from "@/lib/api";
@@ -122,21 +123,82 @@ export default function NotificationsScreen() {
       return;
     }
 
+    // 2.5 Price Proposal (Negotiation) Notifications -> Route to Booking/Proposal Details
+    const isPriceProposal =
+      item.title.toLowerCase().includes("proposition de prix") ||
+      item.title.toLowerCase().includes("عرض سعر") ||
+      item.title.toLowerCase().includes("tarif") ||
+      item.message.toLowerCase().includes("tarif de") ||
+      item.message.toLowerCase().includes("offre de prix") ||
+      item.message.toLowerCase().includes("proposé un tarif");
+
+    if (isPriceProposal && item.targetId) {
+      try {
+        const propRes = await priceProposalApi.getProposalById(item.targetId);
+        if (propRes.data?.success && propRes.data.data) {
+          const prop = propRes.data.data;
+          // If a real booking was already created from this proposal, go to booking details directly
+          if (prop.bookingId || prop.booking?.id) {
+            router.push({
+              pathname: "/(app)/booking-details" as any,
+              params: { id: prop.bookingId || prop.booking?.id, from: "notifications" },
+            });
+            return;
+          }
+
+          // Case A: Proposal is on a Flight Offer (Annonce de vol)
+          if (prop.offerId || prop.offer) {
+            // Open direct interactive negotiation / details screen
+            router.push({
+              pathname: "/(app)/booking-details" as any,
+              params: {
+                id: prop.id,
+                type: "proposal",
+                from: "notifications",
+              },
+            });
+            return;
+          }
+
+          // Case B: Proposal is on a Package Demand (Demande de colis)
+          if (prop.demandId || prop.demand) {
+            const isDemandOwner = user?.id && user.id === prop.demand?.userId;
+            router.push({
+              pathname: "/(app)/(tabs)/requests" as any,
+              params: {
+                mode: isDemandOwner ? "my_demands" : "my_applications",
+                targetId: prop.id,
+                t: Date.now().toString(),
+              },
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        // Fallback: direct to booking-details with proposal id
+        router.push({
+          pathname: "/(app)/booking-details" as any,
+          params: { id: item.targetId, type: "proposal", from: "notifications" },
+        });
+        return;
+      }
+    }
+
     // 3. Demand & Proposal Notifications -> Navigate to Requests screen
     const isDemandRelated =
-      item.type === "DEMAND_RECEIVED" ||
-      item.type === "REQUEST_ACCEPTED" ||
-      item.type === "REQUEST_REJECTED" ||
-      item.type === "PROPOSAL_CANCELLED" ||
-      item.title.toLowerCase().includes("proposition") ||
-      item.title.toLowerCase().includes("proposal") ||
-      item.title.toLowerCase().includes("colis") ||
-      item.title.toLowerCase().includes("demande") ||
-      item.title.toLowerCase().includes("شحنة") ||
-      item.title.toLowerCase().includes("طلب") ||
-      item.message.toLowerCase().includes("colis") ||
-      item.message.toLowerCase().includes("proposition") ||
-      item.message.toLowerCase().includes("demande");
+      !isPriceProposal &&
+      (item.type === "DEMAND_RECEIVED" ||
+        item.type === "REQUEST_ACCEPTED" ||
+        item.type === "REQUEST_REJECTED" ||
+        item.type === "PROPOSAL_CANCELLED" ||
+        item.title.toLowerCase().includes("colis") ||
+        item.title.toLowerCase().includes("demande") ||
+        item.title.toLowerCase().includes("شحنة") ||
+        item.title.toLowerCase().includes("طلب") ||
+        item.message.toLowerCase().includes("colis") ||
+        item.message.toLowerCase().includes("demande") ||
+        ((item.title.toLowerCase().includes("proposition") || item.title.toLowerCase().includes("proposal")) &&
+          !item.title.toLowerCase().includes("prix")));
 
     if (isDemandRelated) {
       const isApplicant =

@@ -101,16 +101,52 @@ export default function LoginScreen() {
           router.replace("/(app)/(tabs)/home");
         }
       } else {
-        setGeneralError(response.data?.error || "Login failed. Please check your credentials.");
+        setGeneralError(
+          response.data?.error ||
+            (language === "ar"
+              ? "فشل تسجيل الدخول. يرجى التأكد من بياناتك."
+              : "Échec de connexion. Vérifiez vos identifiants.")
+        );
       }
     } catch (error: any) {
       console.error("Login failed:", error);
-      const errorMsg =
+      const rawMsg =
         error.response?.data?.error ||
         error.response?.data?.message ||
         error.message ||
-        "Login failed. Please check your credentials.";
-      setGeneralError(errorMsg);
+        "";
+
+      let cleanMsg =
+        language === "ar"
+          ? "البريد الإلكتروني أو كلمة المرور غير صحيحة."
+          : "Email ou mot de passe incorrect.";
+
+      const lower = rawMsg.toLowerCase();
+      if (
+        lower.includes("network error") ||
+        lower.includes("failed to connect") ||
+        lower.includes("econnrefused")
+      ) {
+        cleanMsg =
+          language === "ar"
+            ? "تعذر الاتصال بالخادم. يرجى التأكد من اتصالك بالإنترنت."
+            : "Impossible de se connecter au serveur. Vérifiez votre connexion internet.";
+      } else if (
+        lower.includes("prisma") ||
+        lower.includes("invocation") ||
+        lower.includes("database") ||
+        lower.includes("column") ||
+        lower.includes("syntax error")
+      ) {
+        cleanMsg =
+          language === "ar"
+            ? "حدث خطأ فني غير متوقع. يرجى المحاولة مرة أخرى لاحقاً."
+            : "Une erreur technique est survenue. Veuillez réessayer plus tard.";
+      } else if (rawMsg && !rawMsg.includes("\n") && rawMsg.length < 100) {
+        cleanMsg = rawMsg;
+      }
+
+      setGeneralError(cleanMsg);
     } finally {
       setLoading(false);
     }

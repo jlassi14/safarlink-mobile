@@ -14,9 +14,11 @@ import {
   ShieldCheck,
   AlertTriangle,
   RotateCcw,
+  Star,
 } from "lucide-react-native";
 import { useAppStore } from "@/lib/store";
 import { bookingApi, proposalApi } from "@/lib/api";
+import RatingModal from "@/components/RatingModal";
 
 export interface MutualResolutionSectionProps {
   bookingId?: string;
@@ -42,7 +44,7 @@ export default function MutualResolutionSection({
   bookingStatus,
   paymentStatus,
   totalPrice,
-  currency = "QAR",
+  currency = "$",
   onActionSubmitted,
 }: MutualResolutionSectionProps) {
   const { language, darkMode } = useAppStore();
@@ -53,6 +55,7 @@ export default function MutualResolutionSection({
   const [travelerAction, setTravelerAction] = useState<"COMPLETED" | "CANCELLED" | null>(
     initialTravelerAction || null
   );
+  const [showRatingModal, setShowRatingModal] = useState<boolean>(false);
 
   // Sync if props change
   React.useEffect(() => {
@@ -61,13 +64,10 @@ export default function MutualResolutionSection({
   }, [initialSenderAction, initialTravelerAction]);
 
   const normStatus = bookingStatus?.toLowerCase();
-  // Show resolution if status is accepted, in_transit, delivered, completed, cancelled, or disputed
+  // Show resolution only at the end when package is delivered, completed, or disputed
   const isResolutionEligible =
-    normStatus === "accepted" ||
-    normStatus === "in_transit" ||
     normStatus === "delivered" ||
     normStatus === "completed" ||
-    normStatus === "cancelled" ||
     normStatus === "disputed";
 
   if (!isResolutionEligible) {
@@ -218,6 +218,7 @@ export default function MutualResolutionSection({
                     ? "قام الطرفان بالتأكيد! تم تحرير المبلغ بنجاح للمسافر."
                     : "Les deux parties ont confirmé ! Le paiement a été libéré au voyageur."
                 );
+                setTimeout(() => setShowRatingModal(true), 1000);
               } else if (updated?.status === "CANCELLED") {
                 Alert.alert(
                   language === "ar" ? "تم الإلغاء بنجاح 🔄" : "Annulation Validée 🔄",
@@ -225,6 +226,7 @@ export default function MutualResolutionSection({
                     ? "وافق الطرفان على الإلغاء. تم استرجاع المبلغ للمرسل."
                     : "Les deux parties ont annulé. Le montant a été remboursé à l'expéditeur."
                 );
+                setTimeout(() => setShowRatingModal(true), 1000);
               } else {
                 Alert.alert(
                   language === "ar" ? "تم تسجيل اختيارك ⏳" : "Choix Enregistré ⏳",
@@ -386,8 +388,22 @@ export default function MutualResolutionSection({
         </View>
       )}
 
-      {/* The 2 Action Buttons: Only show if not fully finalized (both completed or both cancelled) */}
-      {!isBothCompleted && !isBothCancelled && (
+      {/* Rating Trigger Button when deal is finalized */}
+      {(isBothCompleted || normStatus === "completed" || isBothCancelled) && (
+        <TouchableOpacity
+          style={styles.ratingTriggerBtn}
+          onPress={() => setShowRatingModal(true)}
+          activeOpacity={0.8}
+        >
+          <Star size={16} color="#F59E0B" fill="#F59E0B" />
+          <Text style={styles.ratingTriggerText}>
+            {language === "ar" ? "تقييم الطرف الآخر ⭐" : "Évaluer cette transaction ⭐"}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* The 2 Action Buttons: Only show if not fully finalized (both completed or both cancelled) and status is not completed/cancelled */}
+      {normStatus !== "completed" && normStatus !== "cancelled" && !isBothCompleted && !isBothCancelled && (
         <View style={styles.buttonsRow}>
           {/* Button 1: Confirmer */}
           <TouchableOpacity
@@ -498,6 +514,14 @@ export default function MutualResolutionSection({
           </TouchableOpacity>
         </View>
       )}
+      {/* Rating Modal */}
+      <RatingModal
+        visible={showRatingModal}
+        onClose={() => setShowRatingModal(false)}
+        bookingId={itemType === "BOOKING" ? bookingId : undefined}
+        proposalId={itemType === "PROPOSAL" ? proposalId : undefined}
+        targetUserName={partnerRoleLabel}
+      />
     </View>
   );
 }
@@ -684,5 +708,23 @@ const styles = StyleSheet.create({
   btnTextMuted: {
     color: "#94A3B8",
     fontWeight: "600",
+  },
+  ratingTriggerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  ratingTriggerText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#B45309",
   },
 });

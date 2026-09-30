@@ -79,12 +79,12 @@ export default function CreateScreen() {
   const [arrTime, setArrTime] = useState("18:45");
   const [offerKg, setOfferKg] = useState("");
   const [priceKg, setPriceKg] = useState("");
-  const [offerCurrency, setOfferCurrency] = useState<string>("QAR");
+  const offerCurrency = "USD";
 
   const [reqDate, setReqDate] = useState<Date | null>(null);
   const [pkgKg, setPkgKg] = useState("");
   const [reward, setReward] = useState("");
-  const [requestCurrency, setRequestCurrency] = useState<string>("QAR");
+  const [requestCurrency, setRequestCurrency] = useState<string>("USD");
   const [desc, setDesc] = useState("");
 
   // Tunisia Domestic Delivery State
@@ -141,11 +141,10 @@ export default function CreateScreen() {
     setArrTime("18:45");
     setOfferKg("");
     setPriceKg("");
-    setOfferCurrency("QAR");
     setReqDate(null);
     setPkgKg("");
     setReward("");
-    setRequestCurrency("QAR");
+    setRequestCurrency("USD");
     setDesc("");
     setDeliveryMethod(null);
     setDeliveryContactName("");
@@ -339,7 +338,7 @@ export default function CreateScreen() {
   };
 
   const isOffer = postType === "offer";
-  const activeCurrency = isOffer ? offerCurrency : requestCurrency;
+  const activeCurrency = requestCurrency;
 
   return (
     <SafeAreaView style={[s.safe, darkMode && s.safeDk]}>
@@ -429,8 +428,7 @@ export default function CreateScreen() {
               arrTime={arrTime} setArrTime={setArrTime}
               offerKg={offerKg} setOfferKg={setOfferKg}
               priceKg={priceKg} setPriceKg={setPriceKg}
-              currency={offerCurrency}
-              onOpenCurrencyModal={() => setCurrencyModalVisible(true)}
+              currency="USD"
               onFocusInput={scrollToBottom}
               errors={err} clearError={clearError}
             />
@@ -502,13 +500,12 @@ export default function CreateScreen() {
         onClose={() => setPickerMode(null)}
       />
 
-      {/* Dynamic Currency Picker Modal (Each tab has independent currency) */}
+      {/* Dynamic Currency Picker Modal (For parcel requests only) */}
       <CurrencyPickerModal
         visible={currencyModalVisible}
-        selectedCurrency={activeCurrency}
+        selectedCurrency={requestCurrency}
         onSelectCurrency={(cur) => {
-          if (isOffer) setOfferCurrency(cur.code);
-          else setRequestCurrency(cur.code);
+          setRequestCurrency(cur.code);
         }}
         onClose={() => setCurrencyModalVisible(false)}
       />
@@ -525,7 +522,7 @@ export default function CreateScreen() {
             : (reqDate?.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) || "Flexible")
         }
         weightText={isOffer ? `${offerKg} kg` : `${pkgKg} kg`}
-        priceOrRewardText={isOffer ? `${offerCurrency} ${priceKg} / kg` : `${requestCurrency} ${reward}`}
+        priceOrRewardText={isOffer ? `$ ${priceKg} / kg` : `${requestCurrency} ${reward}`}
         descriptionText={!isOffer ? desc : undefined}
         deliveryMethodText={getDeliveryMethodSummary()}
         loading={busy}

@@ -41,6 +41,7 @@ import {
   Settings,
   Gift,
   Wallet,
+  Star,
 } from "lucide-react-native";
 import Input from "@/components/Input";
 import Button from "@/components/Button";
@@ -405,6 +406,17 @@ export default function ProfileScreen() {
                   ? t("verifiedAccount", language)
                   : t("unverifiedAccount", language)}
               </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4 }}>
+                <Star size={14} color="#F59E0B" fill="#F59E0B" />
+                <Text style={{ fontSize: 13, fontWeight: "700", color: darkMode ? "#F8FAFC" : "#0F172A" }}>
+                  {(user as any)?.averageRating && (user as any).averageRating > 0
+                    ? Number((user as any).averageRating).toFixed(1)
+                    : "0.0"}
+                </Text>
+                <Text style={{ fontSize: 12, color: "#64748B" }}>
+                  ({(user as any)?.reviewCount || 0} {language === "ar" ? "تقييم" : "avis"})
+                </Text>
+              </View>
             </View>
           </View>
         </View>

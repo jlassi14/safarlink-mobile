@@ -22,6 +22,7 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
+  Edit3,
 } from "lucide-react-native";
 import { useAppStore } from "@/lib/store";
 import { t } from "@/lib/i18n";
@@ -39,6 +40,7 @@ interface TunisiaDeliveryDetailsCardProps {
   containerStyle?: object;
   hidePricing?: boolean;
   isTraveler?: boolean;
+  onEdit?: () => void;
 }
 
 export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProps> = ({
@@ -53,6 +55,7 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
   containerStyle,
   hidePricing = false,
   isTraveler = false,
+  onEdit,
 }) => {
   const { language, darkMode } = useAppStore();
   const primaryColor = colors.primary || "#2563EB";
@@ -326,6 +329,15 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
     }
   };
 
+  const isRTL = language === "ar";
+  const labels = {
+    contact: isRTL ? "جهة الاتصال" : language === "fr" ? "Contact" : "Contact",
+    phone: isRTL ? "الهاتف" : language === "fr" ? "Téléphone" : "Phone",
+    address: isRTL ? "العنوان" : language === "fr" ? "Adresse" : "Address",
+    fee: isRTL ? "معاليم التوصيل" : language === "fr" ? "Frais de livraison" : "Delivery Fee",
+    payment: isRTL ? "طريقة الدفع" : language === "fr" ? "Mode de paiement" : "Payment Method",
+  };
+
   const paymentLabel =
     paymentMethod === "CASH"
       ? t("payCash", language)
@@ -352,6 +364,18 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
               : t("deliveryMethodIFastProDesc", language)}
           </Text>
         </View>
+        {onEdit && (
+          <TouchableOpacity
+            style={[styles.editBtn, { borderColor: primaryColor + "40", backgroundColor: primaryColor + "10" }]}
+            onPress={onEdit}
+            activeOpacity={0.7}
+          >
+            <Edit3 size={13} color={primaryColor} />
+            <Text style={[styles.editBtnText, { color: primaryColor }]}>
+              {language === "ar" ? "تعديل" : "Modifier"}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Selected Delivery Method Card with Status on far right & descriptive line below */}
@@ -433,57 +457,73 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
       </View>
 
       {/* Dynamic Details rows */}
-      {/* Dynamic Details rows */}
       <View style={[styles.detailsBox, darkMode && styles.detailsBoxDark]}>
         {/* FAMILY: Contact Name, Phone, and optional Address */}
         {isFamily && (
           <>
             <View style={styles.detailRow}>
               <View style={styles.labelCol}>
-                <User size={15} color="#6B7280" style={styles.rowIcon} />
+                <View style={[styles.miniIconBox, { backgroundColor: "#F3F4F6" }, darkMode && styles.miniIconBoxDark]}>
+                  <User size={13} color="#6B7280" />
+                </View>
                 <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                  {t("contactNameLabel", language)}:
+                  {labels.contact}
                 </Text>
               </View>
-              <Text style={[styles.fieldValue, darkMode && styles.textWhite]}>
+              <Text
+                style={[styles.fieldValue, darkMode && styles.textWhite, { textAlign: isRTL ? "left" : "right" }]}
+                numberOfLines={1}
+              >
                 {contactName || "—"}
               </Text>
             </View>
 
-            <View style={[styles.detailRow, !Boolean(deliveryAddress && deliveryAddress.trim()) && { borderBottomWidth: 0, paddingBottom: 0 }]}>
+            <View style={[styles.detailRow, !Boolean(deliveryAddress && deliveryAddress.trim()) && { borderBottomWidth: 0 }]}>
               <View style={styles.labelCol}>
-                <Phone size={15} color="#6B7280" style={styles.rowIcon} />
+                <View style={[styles.miniIconBox, { backgroundColor: primaryColor + "15" }]}>
+                  <Phone size={13} color={primaryColor} />
+                </View>
                 <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                  {t("contactPhoneLabel", language)}:
+                  {labels.phone}
                 </Text>
               </View>
-              <View style={styles.phoneActionRow}>
-                <Text style={[styles.fieldValue, { color: primaryColor, fontWeight: "700" }]}>
+              <TouchableOpacity
+                style={[
+                  styles.phoneActionRow,
+                  { backgroundColor: primaryColor + "10", borderColor: primaryColor + "30" },
+                ]}
+                onPress={handleCallPhone}
+                activeOpacity={0.7}
+                disabled={!contactPhone}
+              >
+                <Text style={[styles.phoneValue, { color: primaryColor }]}>
                   {contactPhone || "—"}
                 </Text>
-                {contactPhone ? (
-                  <TouchableOpacity
-                    style={[styles.callBtn, { backgroundColor: primaryColor + "15" }]}
-                    onPress={handleCallPhone}
-                    activeOpacity={0.7}
-                  >
-                    <PhoneCall size={13} color={primaryColor} />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
+                {Boolean(contactPhone) && (
+                  <View style={[styles.callBtnCircle, { backgroundColor: primaryColor }]}>
+                    <PhoneCall size={10} color="#FFFFFF" />
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
 
             {Boolean(deliveryAddress && deliveryAddress.trim()) && (
-              <View style={[styles.detailRow, { borderBottomWidth: 0, paddingBottom: 0 }]}>
-                <View style={styles.labelCol}>
-                  <MapPin size={15} color="#6B7280" style={styles.rowIcon} />
+              <View style={[styles.detailRow, styles.addressRow, { borderBottomWidth: 0 }]}>
+                <View style={[styles.labelCol, styles.addressLabelCol]}>
+                  <View style={[styles.miniIconBox, { backgroundColor: "#F3F4F6" }, darkMode && styles.miniIconBoxDark]}>
+                    <MapPin size={13} color="#6B7280" />
+                  </View>
                   <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                    {t("deliveryAddressLabel", language)}:
+                    {labels.address}
                   </Text>
                 </View>
                 <Text
-                  style={[styles.fieldValue, darkMode && styles.textWhite, { flex: 1, textAlign: "right" }]}
-                  numberOfLines={2}
+                  style={[
+                    styles.addressValue,
+                    darkMode && styles.textWhite,
+                    { textAlign: isRTL ? "left" : "right" },
+                  ]}
+                  numberOfLines={3}
                 >
                   {deliveryAddress}
                 </Text>
@@ -496,16 +536,22 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
         {isCourier && (
           <>
             {Boolean(deliveryAddress && deliveryAddress.trim()) && (
-              <View style={styles.detailRow}>
-                <View style={styles.labelCol}>
-                  <MapPin size={15} color="#6B7280" style={styles.rowIcon} />
+              <View style={[styles.detailRow, styles.addressRow]}>
+                <View style={[styles.labelCol, styles.addressLabelCol]}>
+                  <View style={[styles.miniIconBox, { backgroundColor: "#F3F4F6" }, darkMode && styles.miniIconBoxDark]}>
+                    <MapPin size={13} color="#6B7280" />
+                  </View>
                   <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                    {t("deliveryAddressLabel", language)}:
+                    {labels.address}
                   </Text>
                 </View>
                 <Text
-                  style={[styles.fieldValue, darkMode && styles.textWhite, { flex: 1, textAlign: "right" }]}
-                  numberOfLines={2}
+                  style={[
+                    styles.addressValue,
+                    darkMode && styles.textWhite,
+                    { textAlign: isRTL ? "left" : "right" },
+                  ]}
+                  numberOfLines={3}
                 >
                   {deliveryAddress}
                 </Text>
@@ -515,12 +561,17 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
             {Boolean(contactName && contactName.trim()) && (
               <View style={styles.detailRow}>
                 <View style={styles.labelCol}>
-                  <User size={15} color="#6B7280" style={styles.rowIcon} />
+                  <View style={[styles.miniIconBox, { backgroundColor: "#F3F4F6" }, darkMode && styles.miniIconBoxDark]}>
+                    <User size={13} color="#6B7280" />
+                  </View>
                   <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                    {t("contactNameLabel", language)}:
+                    {labels.contact}
                   </Text>
                 </View>
-                <Text style={[styles.fieldValue, darkMode && styles.textWhite]}>
+                <Text
+                  style={[styles.fieldValue, darkMode && styles.textWhite, { textAlign: isRTL ? "left" : "right" }]}
+                  numberOfLines={1}
+                >
                   {contactName}
                 </Text>
               </View>
@@ -529,23 +580,29 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
             {Boolean(contactPhone && contactPhone.trim()) && (
               <View style={styles.detailRow}>
                 <View style={styles.labelCol}>
-                  <Phone size={15} color="#6B7280" style={styles.rowIcon} />
+                  <View style={[styles.miniIconBox, { backgroundColor: primaryColor + "15" }]}>
+                    <Phone size={13} color={primaryColor} />
+                  </View>
                   <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                    {t("contactPhoneLabel", language)}:
+                    {labels.phone}
                   </Text>
                 </View>
-                <View style={styles.phoneActionRow}>
-                  <Text style={[styles.fieldValue, { color: primaryColor, fontWeight: "700" }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.phoneActionRow,
+                    { backgroundColor: primaryColor + "10", borderColor: primaryColor + "30" },
+                  ]}
+                  onPress={handleCallPhone}
+                  activeOpacity={0.7}
+                  disabled={!contactPhone}
+                >
+                  <Text style={[styles.phoneValue, { color: primaryColor }]}>
                     {contactPhone}
                   </Text>
-                  <TouchableOpacity
-                    style={[styles.callBtn, { backgroundColor: primaryColor + "15" }]}
-                    onPress={handleCallPhone}
-                    activeOpacity={0.7}
-                  >
-                    <PhoneCall size={13} color={primaryColor} />
-                  </TouchableOpacity>
-                </View>
+                  <View style={[styles.callBtnCircle, { backgroundColor: primaryColor }]}>
+                    <PhoneCall size={10} color="#FFFFFF" />
+                  </View>
+                </TouchableOpacity>
               </View>
             )}
 
@@ -553,25 +610,33 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
               <>
                 <View style={styles.detailRow}>
                   <View style={styles.labelCol}>
-                    <Banknote size={15} color="#6B7280" style={styles.rowIcon} />
+                    <View style={[styles.miniIconBox, { backgroundColor: primaryColor + "15" }]}>
+                      <Banknote size={13} color={primaryColor} />
+                    </View>
                     <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                      {t("deliveryFeeLabel", language)}:
+                      {labels.fee}
                     </Text>
                   </View>
-                  <Text style={[styles.fieldValue, { color: primaryColor, fontWeight: "800" }]}>
-                    {deliveryFee !== undefined && deliveryFee !== null ? `${deliveryFee} TND` : "—"}
-                  </Text>
+                  <View style={[styles.feePill, { backgroundColor: primaryColor + "15" }]}>
+                    <Text style={[styles.feePillText, { color: primaryColor }]}>
+                      {deliveryFee !== undefined && deliveryFee !== null ? `${deliveryFee} TND` : "—"}
+                    </Text>
+                  </View>
                 </View>
 
                 {paymentLabel && (
-                  <View style={styles.detailRow}>
+                  <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
                     <View style={styles.labelCol}>
-                      <CreditCard size={15} color="#6B7280" style={styles.rowIcon} />
+                      <View style={[styles.miniIconBox, { backgroundColor: "#F3F4F6" }, darkMode && styles.miniIconBoxDark]}>
+                        <CreditCard size={13} color="#6B7280" />
+                      </View>
                       <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                        {t("paymentMethodLabel", language)}:
+                        {labels.payment}
                       </Text>
                     </View>
-                    <Text style={[styles.fieldValue, darkMode && styles.textWhite]}>
+                    <Text
+                      style={[styles.fieldValue, darkMode && styles.textWhite, { textAlign: isRTL ? "left" : "right" }]}
+                    >
                       {paymentLabel}
                     </Text>
                   </View>
@@ -591,16 +656,22 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
         {/* I_FAST_PRO: Address, Recipient Contact, Payment (Sender only) */}
         {isIFastPro && (
           <>
-            <View style={styles.detailRow}>
-              <View style={styles.labelCol}>
-                <MapPin size={15} color="#6B7280" style={styles.rowIcon} />
+            <View style={[styles.detailRow, styles.addressRow]}>
+              <View style={[styles.labelCol, styles.addressLabelCol]}>
+                <View style={[styles.miniIconBox, { backgroundColor: "#F3F4F6" }, darkMode && styles.miniIconBoxDark]}>
+                  <MapPin size={13} color="#6B7280" />
+                </View>
                 <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                  {t("deliveryAddressLabel", language)}:
+                  {labels.address}
                 </Text>
               </View>
               <Text
-                style={[styles.fieldValue, darkMode && styles.textWhite, { flex: 1, textAlign: "right" }]}
-                numberOfLines={2}
+                style={[
+                  styles.addressValue,
+                  darkMode && styles.textWhite,
+                  { textAlign: isRTL ? "left" : "right" },
+                ]}
+                numberOfLines={3}
               >
                 {deliveryAddress || "—"}
               </Text>
@@ -609,12 +680,17 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
             {Boolean(contactName && contactName.trim()) && (
               <View style={styles.detailRow}>
                 <View style={styles.labelCol}>
-                  <User size={15} color="#6B7280" style={styles.rowIcon} />
+                  <View style={[styles.miniIconBox, { backgroundColor: "#F3F4F6" }, darkMode && styles.miniIconBoxDark]}>
+                    <User size={13} color="#6B7280" />
+                  </View>
                   <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                    {t("contactNameLabel", language)}:
+                    {labels.contact}
                   </Text>
                 </View>
-                <Text style={[styles.fieldValue, darkMode && styles.textWhite]}>
+                <Text
+                  style={[styles.fieldValue, darkMode && styles.textWhite, { textAlign: isRTL ? "left" : "right" }]}
+                  numberOfLines={1}
+                >
                   {contactName}
                 </Text>
               </View>
@@ -623,35 +699,45 @@ export const TunisiaDeliveryDetailsCard: React.FC<TunisiaDeliveryDetailsCardProp
             {Boolean(contactPhone && contactPhone.trim()) && (
               <View style={styles.detailRow}>
                 <View style={styles.labelCol}>
-                  <Phone size={15} color="#6B7280" style={styles.rowIcon} />
+                  <View style={[styles.miniIconBox, { backgroundColor: primaryColor + "15" }]}>
+                    <Phone size={13} color={primaryColor} />
+                  </View>
                   <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                    {t("contactPhoneLabel", language)}:
+                    {labels.phone}
                   </Text>
                 </View>
-                <View style={styles.phoneActionRow}>
-                  <Text style={[styles.fieldValue, { color: primaryColor, fontWeight: "700" }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.phoneActionRow,
+                    { backgroundColor: primaryColor + "10", borderColor: primaryColor + "30" },
+                  ]}
+                  onPress={handleCallPhone}
+                  activeOpacity={0.7}
+                  disabled={!contactPhone}
+                >
+                  <Text style={[styles.phoneValue, { color: primaryColor }]}>
                     {contactPhone}
                   </Text>
-                  <TouchableOpacity
-                    style={[styles.callBtn, { backgroundColor: primaryColor + "15" }]}
-                    onPress={handleCallPhone}
-                    activeOpacity={0.7}
-                  >
-                    <PhoneCall size={13} color={primaryColor} />
-                  </TouchableOpacity>
-                </View>
+                  <View style={[styles.callBtnCircle, { backgroundColor: primaryColor }]}>
+                    <PhoneCall size={10} color="#FFFFFF" />
+                  </View>
+                </TouchableOpacity>
               </View>
             )}
 
             {!hidePricing && !isTraveler && paymentLabel && (
-              <View style={styles.detailRow}>
+              <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
                 <View style={styles.labelCol}>
-                  <CreditCard size={15} color="#6B7280" style={styles.rowIcon} />
+                  <View style={[styles.miniIconBox, { backgroundColor: "#F3F4F6" }, darkMode && styles.miniIconBoxDark]}>
+                    <CreditCard size={13} color="#6B7280" />
+                  </View>
                   <Text style={[styles.fieldLabel, darkMode && styles.textMutedDark]}>
-                    {t("paymentMethodLabel", language)}:
+                    {labels.payment}
                   </Text>
                 </View>
-                <Text style={[styles.fieldValue, darkMode && styles.textWhite]}>
+                <Text
+                  style={[styles.fieldValue, darkMode && styles.textWhite, { textAlign: isRTL ? "left" : "right" }]}
+                >
                   {paymentLabel}
                 </Text>
               </View>
@@ -674,7 +760,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    padding: 16,
+    padding: 14,
     marginVertical: 6,
     borderWidth: 1,
     borderColor: "#E2E8F0",
@@ -707,6 +793,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
+    flexShrink: 0,
   },
   flagEmoji: {
     fontSize: 18,
@@ -723,6 +810,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748B",
     marginTop: 2,
+  },
+  editBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginLeft: 8,
+    flexShrink: 0,
+  },
+  editBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   textWhite: {
     color: "#FFFFFF",
@@ -746,13 +848,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
     gap: 8,
   },
   methodLeftGroup: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    flex: 1,
+    flexShrink: 1,
   },
   methodTitleRow: {
     flexDirection: "row",
@@ -822,10 +925,10 @@ const styles = StyleSheet.create({
   detailsBox: {
     backgroundColor: "#F8FAFC",
     borderRadius: 12,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    gap: 8,
   },
   detailsBoxDark: {
     backgroundColor: "#111827",
@@ -835,39 +938,84 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 6,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
+    gap: 10,
+  },
+  addressRow: {
+    alignItems: "flex-start",
   },
   labelCol: {
     flexDirection: "row",
     alignItems: "center",
-    flex: 1,
+    gap: 8,
+    flexShrink: 0,
   },
-  rowIcon: {
-    marginRight: 6,
+  addressLabelCol: {
+    marginTop: 2,
+  },
+  miniIconBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  miniIconBoxDark: {
+    backgroundColor: "#374151",
   },
   fieldLabel: {
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 12.5,
+    fontWeight: "600",
     color: "#64748B",
   },
   fieldValue: {
     fontSize: 13,
     fontWeight: "600",
     color: "#0F172A",
+    flexShrink: 1,
+  },
+  addressValue: {
+    flex: 1,
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#1E293B",
+    lineHeight: 18,
+    paddingLeft: 8,
   },
   phoneActionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexShrink: 0,
   },
-  callBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+  phoneValue: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  callBtnCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+  },
+  feePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  feePillText: {
+    fontSize: 12.5,
+    fontWeight: "800",
   },
   noticeBanner: {
     flexDirection: "row",
@@ -875,7 +1023,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#EFF6FF",
     borderRadius: 8,
     padding: 8,
-    marginTop: 4,
+    marginVertical: 8,
     borderWidth: 1,
     borderColor: "#BFDBFE",
   },

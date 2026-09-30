@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
+import { useAppStore } from "./store";
 
 // In development: Reads EXPO_PUBLIC_API_URL from .env, with smart fallbacks for Android/iOS/Web
 const getBaseUrl = (): string => {
@@ -110,7 +111,11 @@ apiClient.interceptors.response.use(
           }
         } catch (refreshError) {
           await clearAuthTokens();
+          useAppStore.getState().logout();
         }
+      } else {
+        await clearAuthTokens();
+        useAppStore.getState().logout();
       }
     }
     const serverErrorMsg =
@@ -555,6 +560,7 @@ export interface CreateBookingPayload {
   deliveryFee?: number | null;
   deliveryPaymentMethod?: TunisiaPaymentMethod | null;
   deliveryAddress?: string | null;
+  acceptedProposalId?: string | null;
 }
 
 export interface CreateBookingResult {
@@ -683,6 +689,7 @@ export interface BackendProposalItem {
   arrivalDate?: string;
   arrivalTime?: string;
   proposedPrice?: string;
+  weightKg?: number;
   notes?: string;
   status: ProposalStatus;
   paymentStatus?: string;
@@ -712,6 +719,7 @@ export const proposalApi = {
     arrivalDate?: string;
     arrivalTime?: string;
     proposedPrice?: string;
+    weightKg?: number;
     notes?: string;
   }) => apiClient.post<ApiResponse<BackendProposalItem>>("/proposals", payload),
 
@@ -784,5 +792,152 @@ export const userApi = {
     apiClient.get<ApiResponse<PublicUserProfile>>(`/users/${id}`),
 };
 
+export interface ReviewItem {
+  id: string;
+  stars: number;
+  comment?: string | null;
+  reviewerId: string;
+  revieweeId: string;
+  bookingId?: string | null;
+  proposalId?: string | null;
+  createdAt: string;
+  reviewer: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+  };
+}
+
+export interface SubmitReviewPayload {
+  bookingId?: string;
+  proposalId?: string;
+  revieweeId?: string;
+  stars: number;
+  comment?: string;
+}
+
+export const reviewApi = {
+  submitReview: (payload: SubmitReviewPayload) =>
+    apiClient.post<ApiResponse<{ review: ReviewItem; newAverageRating: number; newReviewCount: number }>>(
+      "/reviews",
+      payload
+    ),
+
+  getUserReviews: (userId: string, page = 1, limit = 20) =>
+    apiClient.get<ApiResponse<{ reviews: ReviewItem[]; total: number; page: number; totalPages: number }>>(
+      `/reviews/user/${userId}?page=${page}&limit=${limit}`
+    ),
+
+  getDealReviews: (params: { bookingId?: string; proposalId?: string }) => {
+    const query = params.bookingId ? `bookingId=${params.bookingId}` : `proposalId=${params.proposalId}`;
+    return apiClient.get<ApiResponse<ReviewItem[]>>(`/reviews/deal?${query}`);
+  },
+};
+
+export type PriceProposalStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
+export interface PriceProposalItem {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  proposedPrice: number;
+  currency: string;
+  status: PriceProposalStatus;
+  offerId?: string | null;
+  demandId?: string | null;
+  sender?: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    averageRating?: number;
+    reviewCount?: number;
+  };
+  receiver?: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    averageRating?: number;
+    reviewCount?: number;
+  };
+  weightKg?: number | null;
+  offer?: {
+    id: string;
+    from: string;
+    to: string;
+    departureDate: string;
+    departureTime?: string;
+    destinationDate?: string;
+    destinationTime?: string;
+    pricePerKg: number;
+    totalKg?: number;
+    remainingKg?: number;
+    currency: string;
+    userId: string;
+  };
+  demand?: {
+    id: string;
+    from: string;
+    to: string;
+    targetDate?: string;
+    weightKg?: number;
+    targetReward: number;
+    currency: string;
+    userId: string;
+  };
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
+  booking?: any;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePriceProposalPayload {
+  receiverId: string;
+  proposedPrice: number;
+  weightKg?: number;
+  currency?: string;
+  offerId?: string;
+  demandId?: string;
+  deliveryMethod?: TunisiaDeliveryMethod | null;
+  deliveryContactName?: string | null;
+  deliveryContactPhone?: string | null;
+  deliveryFee?: number | null;
+  deliveryPaymentMethod?: TunisiaPaymentMethod | null;
+  deliveryAddress?: string | null;
+}
+
+export const priceProposalApi = {
+  createProposal: (payload: CreatePriceProposalPayload) =>
+    apiClient.post<ApiResponse<PriceProposalItem>>("/price-proposals", payload),
+
+  getProposals: (params?: { offerId?: string; demandId?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.offerId) query.append("offerId", params.offerId);
+    if (params?.demandId) query.append("demandId", params.demandId);
+    const qs = query.toString();
+    return apiClient.get<ApiResponse<PriceProposalItem[]>>(`/price-proposals${qs ? `?${qs}` : ""}`);
+  },
+
+  getProposalById: (id: string) =>
+    apiClient.get<ApiResponse<PriceProposalItem>>(`/price-proposals/${id}`),
+
+  updateProposal: (id: string, proposedPrice: number) =>
+    apiClient.patch<ApiResponse<PriceProposalItem>>(`/price-proposals/${id}`, { proposedPrice }),
+
+  acceptProposal: (id: string) =>
+    apiClient.patch<ApiResponse<PriceProposalItem>>(`/price-proposals/${id}/accept`),
+
+  rejectProposal: (id: string) =>
+    apiClient.patch<ApiResponse<PriceProposalItem>>(`/price-proposals/${id}/reject`),
+
+  updateDelivery: (id: string, deliveryData: Partial<CreatePriceProposalPayload>) =>
+    apiClient.patch<ApiResponse<PriceProposalItem>>(`/price-proposals/${id}/delivery`, deliveryData),
+};
+
 export default apiClient;
+
 
